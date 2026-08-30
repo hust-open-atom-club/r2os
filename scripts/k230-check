@@ -111,6 +111,7 @@ cd "$repo_root"
 shell_scripts=(
     docker/yocto-entrypoint.sh
     scripts/k230-check
+    scripts/k230-env-setup
     scripts/k230-qemu-run
     scripts/k230-rtt-system-fetch
     scripts/k230-sdk-image

@@ -22,6 +22,7 @@ One path, from source to bootable artifacts.
 The root Makefile provides an end-to-end path with `make k230-qemu`. Its
 default `YOCTO_BACKEND=auto` uses Docker when available and falls back to a
 host Poky checkout when Docker is unavailable.
+Use `make env` to check or bootstrap the selected environment before building.
 
 ## Flow
 

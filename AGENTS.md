@@ -43,6 +43,7 @@ Load the matching skill before starting common work:
 ./scripts/yocto-export-deploy
 ./scripts/k230-sdk-image --deploy build-artifacts/k230-canmv
 ./scripts/k230-qemu-run --deploy build-artifacts/k230-canmv --sd --uboot
+make env
 make k230-qemu
 ```
 

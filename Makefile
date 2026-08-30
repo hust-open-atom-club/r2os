@@ -24,6 +24,10 @@ YOCTO_BACKEND ?= auto
 YOCTO_POKY ?= $(HOME)/yocto/poky
 YOCTO_BUILD_DIR ?= $(ROOT_DIR)/build-artifacts/host-k230
 YOCTO_META_RISCV ?= $(HOME)/yocto/meta-riscv
+YOCTO_POKY_URL ?= https://git.yoctoproject.org/poky
+YOCTO_POKY_BRANCH ?= scarthgap
+YOCTO_META_RISCV_URL ?= https://github.com/riscv/meta-riscv.git
+YOCTO_META_RISCV_BRANCH ?= scarthgap
 YOCTO_DOWNLOADS ?=
 YOCTO_SSTATE ?=
 YOCTO_HOST_SKIP_OPENSBI_PATCH ?= auto
@@ -33,13 +37,15 @@ export YOCTO_BB_THREADS
 export YOCTO_PARALLEL_MAKE_JOBS
 export DOCKER
 
-.PHONY: help all build yocto-init k230-setup k230-build
+.PHONY: help all build env k230-env env-install yocto-init k230-setup k230-build
 .PHONY: qemu-build k230-qemu k230-qemu-initrd k230-qemu-sd qemu
 .PHONY: k230-sdk-image check
 
 help:
 	@printf '%s\n' \
 		'R² OS build targets:' \
+		'  make env              Check and bootstrap the local build environment.' \
+		'  make env-install      Install missing host tools with the system package manager.' \
 		'  make k230-build       Build the Yocto image and export deploy artifacts.' \
 		'  make k230-qemu        Build everything and boot QEMU with initramfs.' \
 		'  make qemu              Alias for make k230-qemu.' \
@@ -60,7 +66,41 @@ all: k230-build
 
 build: k230-build
 
-yocto-init:
+env: k230-env
+
+k230-env:
+	@cd "$(ROOT_DIR)" && \
+	YOCTO_BACKEND="$(YOCTO_BACKEND)" \
+	YOCTO_POKY="$(YOCTO_POKY)" \
+	YOCTO_POKY_URL="$(YOCTO_POKY_URL)" \
+	YOCTO_POKY_BRANCH="$(YOCTO_POKY_BRANCH)" \
+	YOCTO_META_RISCV="$(YOCTO_META_RISCV)" \
+	YOCTO_META_RISCV_URL="$(YOCTO_META_RISCV_URL)" \
+	YOCTO_META_RISCV_BRANCH="$(YOCTO_META_RISCV_BRANCH)" \
+	YOCTO_BUILD_DIR="$(YOCTO_BUILD_DIR)" \
+	YOCTO_DOWNLOADS="$(YOCTO_DOWNLOADS)" \
+	YOCTO_SSTATE="$(YOCTO_SSTATE)" \
+	YOCTO_HOST_SKIP_OPENSBI_PATCH="$(YOCTO_HOST_SKIP_OPENSBI_PATCH)" \
+	DOCKER="$(DOCKER)" \
+	./scripts/k230-env-setup --backend "$(YOCTO_BACKEND)"
+
+env-install:
+	@cd "$(ROOT_DIR)" && \
+	YOCTO_BACKEND="$(YOCTO_BACKEND)" \
+	YOCTO_POKY="$(YOCTO_POKY)" \
+	YOCTO_POKY_URL="$(YOCTO_POKY_URL)" \
+	YOCTO_POKY_BRANCH="$(YOCTO_POKY_BRANCH)" \
+	YOCTO_META_RISCV="$(YOCTO_META_RISCV)" \
+	YOCTO_META_RISCV_URL="$(YOCTO_META_RISCV_URL)" \
+	YOCTO_META_RISCV_BRANCH="$(YOCTO_META_RISCV_BRANCH)" \
+	YOCTO_BUILD_DIR="$(YOCTO_BUILD_DIR)" \
+	YOCTO_DOWNLOADS="$(YOCTO_DOWNLOADS)" \
+	YOCTO_SSTATE="$(YOCTO_SSTATE)" \
+	YOCTO_HOST_SKIP_OPENSBI_PATCH="$(YOCTO_HOST_SKIP_OPENSBI_PATCH)" \
+	DOCKER="$(DOCKER)" \
+	./scripts/k230-env-setup --backend "$(YOCTO_BACKEND)" --install-system-deps
+
+yocto-init: k230-env
 	@set -eu; \
 	cd "$(ROOT_DIR)"; \
 	case "$(YOCTO_BACKEND)" in \
