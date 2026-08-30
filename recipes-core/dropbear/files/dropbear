@@ -1,0 +1,170 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:		sshd
+# Required-Start:	$remote_fs $syslog $networking
+# Required-Stop:	$remote_fs $syslog
+# Default-Start:	2 3 4 5
+# Default-Stop:		1
+# Short-Description:	Dropbear Secure Shell server
+### END INIT INFO
+#
+# Do not configure this file. Edit /etc/default/dropbear instead!
+#
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+DAEMON=/usr/sbin/dropbear
+NAME=dropbear
+DESC="Dropbear SSH server"
+PIDFILE=/var/run/dropbear.pid
+KEYGEN_PIDFILE=/run/dropbear-keygen.pid
+LOGFILE=/var/log/dropbear-keygen.log
+
+# These values may be replaced by those from /etc/default/dropbear
+DROPBEAR_RSAKEY_DIR="/etc/dropbear"
+DROPBEAR_PORT=22
+DROPBEAR_EXTRA_ARGS=
+DROPBEAR_RSAKEY_ARGS=
+NO_START=0
+
+set -e
+
+test ! -r /etc/default/dropbear || . /etc/default/dropbear
+test "$NO_START" = "0" || exit 0
+test -x "$DAEMON" || exit 0
+test ! -h /var/service/dropbear || exit 0
+
+test -z "$DROPBEAR_BANNER" || \
+  DROPBEAR_EXTRA_ARGS="$DROPBEAR_EXTRA_ARGS -b $DROPBEAR_BANNER"
+test -n "$DROPBEAR_RSAKEY" || \
+  DROPBEAR_RSAKEY="${DROPBEAR_RSAKEY_DIR}/dropbear_rsa_host_key"
+
+log_status() {
+    msg="$*"
+
+    if command -v logger >/dev/null 2>&1; then
+        logger -t dropbear-keygen -- "$msg" || true
+    fi
+
+    mkdir -p "${LOGFILE%/*}" 2>/dev/null || true
+    printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)" "$msg" >> "$LOGFILE" 2>/dev/null || true
+}
+
+cleanup_empty_key() {
+    if [ -f "$DROPBEAR_RSAKEY" ] && [ ! -s "$DROPBEAR_RSAKEY" ]; then
+        rm -f "$DROPBEAR_RSAKEY" || true
+    fi
+}
+
+pidfile_running() {
+    pidfile="$1"
+
+    if [ ! -s "$pidfile" ]; then
+        return 1
+    fi
+
+    pid="$(cat "$pidfile" 2>/dev/null || true)"
+    case "$pid" in
+        ''|*[!0-9]*)
+            rm -f "$pidfile"
+            return 1
+            ;;
+    esac
+
+    if kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+
+    rm -f "$pidfile"
+    return 1
+}
+
+dropbear_running() {
+    pidfile_running "$PIDFILE"
+}
+
+keygen_running() {
+    pidfile_running "$KEYGEN_PIDFILE"
+}
+
+start_dropbear_daemon() {
+    if dropbear_running; then
+        log_status "dropbear already running"
+        return 0
+    fi
+
+    start-stop-daemon -S -p "$PIDFILE" \
+      -x "$DAEMON" -- -r "$DROPBEAR_RSAKEY" \
+        -p "$DROPBEAR_PORT" $DROPBEAR_EXTRA_ARGS
+    log_status "dropbear started"
+}
+
+keygen_worker() {
+    trap 'rm -f "$KEYGEN_PIDFILE"' EXIT
+
+    cleanup_empty_key
+    mkdir -p "${DROPBEAR_RSAKEY%/*}"
+
+    if [ ! -s "$DROPBEAR_RSAKEY" ]; then
+        log_status "generating RSA host key asynchronously"
+        if ! dropbearkey -t rsa -f "$DROPBEAR_RSAKEY" $DROPBEAR_RSAKEY_ARGS >> "$LOGFILE" 2>&1; then
+            log_status "RSA host key generation failed"
+            return 1
+        fi
+        log_status "RSA host key generation completed"
+    fi
+
+    start_dropbear_daemon
+}
+
+launch_keygen_worker() {
+    mkdir -p "${DROPBEAR_RSAKEY%/*}"
+    mkdir -p "${KEYGEN_PIDFILE%/*}"
+
+    if keygen_running; then
+        log_status "key generation worker already running"
+        return 0
+    fi
+
+    start-stop-daemon -S -b -m -p "$KEYGEN_PIDFILE" -x "$0" -- keygen-worker
+    log_status "launched key generation worker"
+}
+
+case "$1" in
+  start)
+    echo -n "Starting $DESC: "
+    cleanup_empty_key
+    if [ -s "$DROPBEAR_RSAKEY" ]; then
+        start_dropbear_daemon
+        echo "$NAME."
+    else
+        launch_keygen_worker
+        echo "$NAME (key generation in background)."
+    fi
+    ;;
+  stop)
+    echo -n "Stopping $DESC: "
+    start-stop-daemon -K -x "$DAEMON" -p "$PIDFILE" || true
+    if keygen_running; then
+        kill "$(cat "$KEYGEN_PIDFILE")" 2>/dev/null || true
+    fi
+    rm -f "$PIDFILE" "$KEYGEN_PIDFILE"
+    echo "$NAME."
+    ;;
+  restart|force-reload)
+    echo -n "Restarting $DESC: "
+    "$0" stop >/dev/null 2>&1 || true
+    sleep 1
+    "$0" start >/dev/null 2>&1
+    echo "$NAME."
+    ;;
+  keygen-worker)
+    keygen_worker
+    ;;
+  *)
+    N=/etc/init.d/$NAME
+    echo "Usage: $N {start|stop|restart|force-reload}" >&2
+    exit 1
+    ;;
+esac
+
+exit 0

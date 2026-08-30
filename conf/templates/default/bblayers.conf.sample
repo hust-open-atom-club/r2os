@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+
+POKY_BBLAYERS_CONF_VERSION = "2"
+BBPATH = "${TOPDIR}"
+BBFILES ?= ""
+
+BBLAYERS ?= " \
+  ##OEROOT##/../layers/openembedded-core/meta \
+  ##OEROOT##/../layers/meta-yocto/meta-yocto-bsp \
+  ##OEROOT##/../layers/meta-yocto/meta-poky \
+  /work/src \
+  "

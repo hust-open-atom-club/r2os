@@ -1,0 +1,23 @@
+# /etc/profile: R² OS system-wide shell profile
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+
+if [ "$(id -u)" -eq 0 ]; then
+    export PS1='\u@\h:\w# '
+else
+    export PS1='\u@\h:\w\$ '
+fi
+
+alias ll='ls -la'
+alias la='ls -A'
+alias l='ls -CF'
+alias df='df -h'
+alias du='du -h'
+alias free='free -h'
+
+export EDITOR=vi
+export LESS='-R -M --shift 5'
+export HISTSIZE=1000
+export HISTFILESIZE=2000
+export HISTTIMEFORMAT='%F %T '
+export TZ='UTC'
+umask 022

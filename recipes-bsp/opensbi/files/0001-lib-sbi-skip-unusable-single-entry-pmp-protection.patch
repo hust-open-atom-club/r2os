@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: K230 Yocto <k230-yocto@example.invalid>
+Date: Thu, 21 May 2026 16:48:00 +0800
+Subject: [PATCH] lib: sbi: skip unusable single-entry PMP protection
+
+The local K230 QEMU model exposes one PMP entry. OpenSBI 1.8 registers
+PMP-based hart protection whenever any PMP entry exists, but a single entry
+cannot encode the generic root domain's firmware and S/U memory regions.
+That makes cold boot stop with "insufficient PMP entries".
+
+Treat a single PMP entry as unusable for hart protection. This keeps the
+boot path equivalent to a platform without usable PMP support.
+
+Upstream-Status: Inappropriate [local K230 QEMU model workaround]
+
+Signed-off-by: K230 Yocto <k230-yocto@example.invalid>
+---
+ lib/sbi/sbi_hart_pmp.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/lib/sbi/sbi_hart_pmp.c b/lib/sbi/sbi_hart_pmp.c
+--- a/lib/sbi/sbi_hart_pmp.c
++++ b/lib/sbi/sbi_hart_pmp.c
+@@ -324,6 +324,14 @@ static struct sbi_hart_protection epmp_protection = {
+ int sbi_hart_pmp_init(struct sbi_scratch *scratch)
+ {
+ 	int rc;
++
++	/*
++	 * A single PMP entry is not enough to describe the OpenSBI root
++	 * domain's firmware and S/U memory regions. Registering hart
++	 * protection in that case makes boot fail during PMP configuration.
++	 */
++	if (sbi_hart_pmp_count(scratch) <= 1)
++		return 0;
+ 
+ 	if (sbi_hart_pmp_count(scratch)) {
+ 		if (sbi_hart_has_extension(scratch, SBI_HART_EXT_SMEPMP)) {
+-- 
+2.39.5

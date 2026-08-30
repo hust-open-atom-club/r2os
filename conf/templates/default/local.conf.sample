@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT
+
+MACHINE ??= "k230-canmv"
+DISTRO ?= "r2os"
+PACKAGE_CLASSES ?= "package_ipk"
+EXTRA_IMAGE_FEATURES ?= "allow-empty-password empty-root-password allow-root-login"
+
+DL_DIR ?= "/work/downloads"
+SSTATE_DIR ?= "/work/sstate"
+BB_NUMBER_THREADS ?= "12"
+PARALLEL_MAKE ?= "-j 12"

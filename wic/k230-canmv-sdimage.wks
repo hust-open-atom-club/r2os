@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT
+
+part /boot --source bootimg-partition --ondisk mmcblk1 --fstype=vfat --label boot --active --align 4096 --fixed-size 64
+part / --source rootfs --ondisk mmcblk1 --fstype=ext4 --label root --align 4096 --fixed-size 1980
+
+bootloader --ptable msdos --timeout=0

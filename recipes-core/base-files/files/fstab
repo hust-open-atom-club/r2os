@@ -1,0 +1,25 @@
+# /etc/fstab: R² OS static filesystem information
+#
+# Root filesystem on SD card.  noatime avoids a metadata write on every read,
+# measurably extending SD card lifespan.
+LABEL=root      /       ext4    defaults,noatime    0  1
+
+# Direct WIC images have a boot filesystem.  SDK GPT images use the first
+# partitions for raw firmware payloads, so /boot is optional there.
+LABEL=boot      /boot   vfat    defaults,noatime,ro,nofail 0  0
+
+# ---- Volatile tmpfs mounts (RAM-backed, lost on reboot) ----
+
+# General temporary files.
+tmpfs           /tmp        tmpfs   defaults,noatime,nosuid,size=128M   0  0
+
+# Runtime data: pid files and sockets.  initscripts creates /var/run -> /run
+# so we mount on /run directly.
+tmpfs           /run        tmpfs   defaults,noatime,nosuid,size=16M    0  0
+
+# System logs.  Persistent logging would wear the SD card; ship important
+# logs off-device with rsync or remote syslog.
+tmpfs           /var/log    tmpfs   defaults,noatime,nosuid,size=32M    0  0
+
+# Persistent-ish temporary files that survive program restarts but not reboots.
+tmpfs           /var/tmp    tmpfs   defaults,noatime,nosuid,size=64M    0  0
