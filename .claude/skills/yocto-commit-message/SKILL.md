@@ -1,0 +1,1 @@
+../../../.agents/skills/yocto-commit-message/SKILL.md

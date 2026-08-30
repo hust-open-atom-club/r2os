@@ -1,0 +1,1 @@
+../../../.agents/skills/k230-add-package/SKILL.md

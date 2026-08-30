@@ -1,0 +1,6 @@
+build-artifacts/
+*.swp
+*.tmp
+.DS_Store
+__pycache__/
+.humanize

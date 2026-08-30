@@ -1,0 +1,1 @@
+../../../.agents/skills/k230-config-explain/SKILL.md

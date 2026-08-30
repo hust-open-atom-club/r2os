@@ -1,0 +1,4 @@
+interface:
+  display_name: "K230 Add Package"
+  short_description: "Add software packages to the meta-k230 image."
+  default_prompt: "Add a software package to the K230 Yocto image and validate it, preferring a mature Rust implementation when one exists."

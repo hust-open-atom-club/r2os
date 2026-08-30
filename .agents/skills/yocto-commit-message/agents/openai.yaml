@@ -1,0 +1,4 @@
+interface:
+  display_name: "Yocto Commit Message"
+  short_description: "Write Yocto/OpenEmbedded-style commit messages."
+  default_prompt: "Write or review commits using Yocto/OpenEmbedded commit message conventions."
