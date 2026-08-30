@@ -1,0 +1,31 @@
+{
+    "logo": {
+        "type": "file",
+        "source": "/usr/share/fastfetch/logos/r2os-logo.txt",
+        "padding": {
+            "right": 2
+        },
+        "color": {
+            "1": "90",
+            "2": "38;5;223",
+            "3": "36",
+            "4": "38;5;208"
+        }
+    },
+    "modules": [
+        "title",
+        "separator",
+        "os",
+        "host",
+        "kernel",
+        "uptime",
+        "shell",
+        "terminal",
+        "cpu",
+        "memory",
+        "swap",
+        "disk",
+        "localip",
+        "locale"
+    ]
+}
