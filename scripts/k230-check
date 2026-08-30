@@ -119,6 +119,7 @@ shell_scripts=(
     scripts/yocto-build-targets
     scripts/yocto-common.sh
     scripts/yocto-export-deploy
+    scripts/yocto-host-build
     scripts/yocto-init
     scripts/yocto-k230-setup
     scripts/yocto-shell

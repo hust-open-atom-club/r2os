@@ -19,6 +19,10 @@ One path, from source to bootable artifacts.
 | Export deploy dir | `./scripts/yocto-export-deploy` |
 | Make SDK SD image | `./scripts/k230-sdk-image --deploy build-artifacts/k230-canmv` |
 
+The root Makefile provides an end-to-end path with `make k230-qemu`. Its
+default `YOCTO_BACKEND=auto` uses Docker when available and falls back to a
+host Poky checkout when Docker is unavailable.
+
 ## Flow
 
 1. Work from the repository root.

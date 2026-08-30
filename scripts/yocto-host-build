@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+setup_only=0
+image_target="k230-core-image"
+deploy_dir="build-artifacts/k230-canmv"
+
+usage() {
+    cat <<EOF
+Usage: $0 [--setup-only] [--image TARGET] [--deploy DIR]
+
+Run a Yocto build directly on the host without Docker.
+
+Environment:
+  YOCTO_POKY       Poky checkout, default: ~/yocto/poky
+  YOCTO_BUILD_DIR  Host build directory, default: build-artifacts/host-k230
+  YOCTO_META_RISCV Optional meta-riscv checkout, default: ~/yocto/meta-riscv
+  YOCTO_DOWNLOADS  Download cache; auto-detected when unset.
+  YOCTO_SSTATE     Sstate cache; auto-detected when unset.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --setup-only)
+            setup_only=1
+            shift
+            ;;
+        --image)
+            image_target="$2"
+            shift 2
+            ;;
+        --deploy)
+            deploy_dir="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+case "$deploy_dir" in
+    ""|.|./|./.|/*|..|../*|*/..|*/../*)
+        printf 'Deploy directory must be a relative path in the checkout: %s\n' "$deploy_dir" >&2
+        exit 2
+        ;;
+esac
+
+poky_dir="${YOCTO_POKY:-$HOME/yocto/poky}"
+build_dir="${YOCTO_BUILD_DIR:-$repo_root/build-artifacts/host-k230}"
+meta_riscv="${YOCTO_META_RISCV:-$HOME/yocto/meta-riscv}"
+downloads="${YOCTO_DOWNLOADS:-}"
+sstate="${YOCTO_SSTATE:-}"
+bb_threads="${YOCTO_BB_THREADS:-12}"
+make_jobs="${YOCTO_PARALLEL_MAKE_JOBS:-12}"
+skip_opensbi_patch="${YOCTO_HOST_SKIP_OPENSBI_PATCH:-auto}"
+
+if [ ! -f "$poky_dir/oe-init-build-env" ]; then
+    cat >&2 <<EOF
+Cannot find Poky at $poky_dir.
+
+Set YOCTO_POKY to a Poky checkout or start Docker for the container path.
+EOF
+    exit 2
+fi
+
+case "$build_dir" in
+    /*) ;;
+    *) build_dir="$repo_root/$build_dir" ;;
+esac
+mkdir -p "$build_dir"
+build_dir="$(cd "$build_dir" && pwd)"
+
+if [ -z "$downloads" ]; then
+    if [ -d "$HOME/yocto/meta-k230-v2/downloads" ]; then
+        downloads="$HOME/yocto/meta-k230-v2/downloads"
+    else
+        downloads="$build_dir/downloads"
+    fi
+fi
+
+if [ -z "$sstate" ]; then
+    if [ -d "$HOME/yocto/meta-k230-v2/sstate-cache" ]; then
+        sstate="$HOME/yocto/meta-k230-v2/sstate-cache"
+    else
+        sstate="$build_dir/sstate-cache"
+    fi
+fi
+
+append_local_conf() {
+    if ! grep -q "# Added by scripts/yocto-host-build." conf/local.conf 2>/dev/null; then
+        cat >> conf/local.conf <<EOF
+
+# Added by scripts/yocto-host-build.
+MACHINE = "k230-canmv"
+DISTRO = "r2os"
+DL_DIR = "$downloads"
+SSTATE_DIR = "$sstate"
+BB_NUMBER_THREADS = "$bb_threads"
+PARALLEL_MAKE = "-j $make_jobs"
+EOF
+    fi
+}
+
+append_opensbi_compat_conf() {
+    if ! grep -q "SRC_URI:remove:pn-opensbi" conf/local.conf 2>/dev/null; then
+        cat >> conf/local.conf <<'EOF'
+
+# Host Scarthgap provides OpenSBI 1.4; the layer patch targets OpenSBI 1.8.
+SRC_URI:remove:pn-opensbi = "file://0001-lib-sbi-skip-unusable-single-entry-pmp-protection.patch"
+EOF
+    fi
+}
+
+set +u
+source "$poky_dir/oe-init-build-env" "$build_dir" >/dev/null
+set -u
+
+mkdir -p conf
+append_local_conf
+
+case "$skip_opensbi_patch" in
+    1|yes|true|on)
+        append_opensbi_compat_conf
+        ;;
+    auto)
+        poky_branch="$(git -C "$poky_dir" branch --show-current 2>/dev/null || true)"
+        if [ "$poky_branch" = "scarthgap" ]; then
+            append_opensbi_compat_conf
+        fi
+        ;;
+    0|no|false|off|"")
+        ;;
+    *)
+        printf 'Invalid YOCTO_HOST_SKIP_OPENSBI_PATCH value: %s\n' "$skip_opensbi_patch" >&2
+        exit 2
+        ;;
+esac
+
+add_layer_if_missing() {
+    local layer_path="$1"
+
+    if [ ! -f "$layer_path/conf/layer.conf" ]; then
+        return 0
+    fi
+    if ! bitbake-layers show-layers 2>/dev/null | awk '{print $2}' | grep -Fqx "$layer_path"; then
+        bitbake-layers add-layer "$layer_path"
+    fi
+}
+
+if [ -d "$meta_riscv" ]; then
+    add_layer_if_missing "$meta_riscv"
+fi
+add_layer_if_missing "$repo_root"
+
+if [ "$setup_only" -eq 1 ]; then
+    printf 'Host Yocto environment ready: %s\n' "$build_dir"
+    exit 0
+fi
+
+bitbake "$image_target"
+
+deploy_source="$build_dir/tmp/deploy/images/k230-canmv"
+if [ ! -d "$deploy_source" ]; then
+    printf 'Cannot find deploy directory: %s\n' "$deploy_source" >&2
+    exit 2
+fi
+
+deploy_target="$repo_root/$deploy_dir"
+mkdir -p "$deploy_target"
+rsync -a --delete "$deploy_source/." "$deploy_target/"
+printf 'Exported deploy artifacts to %s\n' "$deploy_dir"

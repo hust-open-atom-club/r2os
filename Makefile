@@ -20,9 +20,18 @@ QEMU_APPEND ?=
 
 YOCTO_BB_THREADS ?= 12
 YOCTO_PARALLEL_MAKE_JOBS ?= 12
+YOCTO_BACKEND ?= auto
+YOCTO_POKY ?= $(HOME)/yocto/poky
+YOCTO_BUILD_DIR ?= $(ROOT_DIR)/build-artifacts/host-k230
+YOCTO_META_RISCV ?= $(HOME)/yocto/meta-riscv
+YOCTO_DOWNLOADS ?=
+YOCTO_SSTATE ?=
+YOCTO_HOST_SKIP_OPENSBI_PATCH ?= auto
+DOCKER ?= docker
 
 export YOCTO_BB_THREADS
 export YOCTO_PARALLEL_MAKE_JOBS
+export DOCKER
 
 .PHONY: help all build yocto-init k230-setup k230-build
 .PHONY: qemu-build k230-qemu k230-qemu-initrd k230-qemu-sd qemu
@@ -42,25 +51,72 @@ help:
 		'Useful overrides:' \
 		'  QEMU_MODE=initrd|sd   Select the direct Linux boot mode.' \
 		'  QEMU_DIR=/path         QEMU source and build directory.' \
-		'  DEPLOY_DIR=path       Relative deploy directory in this checkout.' \
+		'  DEPLOY_DIR=path        Relative deploy directory in this checkout.' \
 		'  QEMU_SNAPSHOT=1       Discard writes made to the SD image.' \
-		'  QEMU_NO_NET=1         Disable QEMU user networking.'
+		'  QEMU_NO_NET=1         Disable QEMU user networking.' \
+		'  YOCTO_BACKEND=host    Use host Poky when Docker is unavailable.'
 
 all: k230-build
 
 build: k230-build
 
 yocto-init:
-	@cd "$(ROOT_DIR)" && ./scripts/yocto-init
+	@set -eu; \
+	cd "$(ROOT_DIR)"; \
+	case "$(YOCTO_BACKEND)" in \
+		auto|host|container) ;; \
+		*) printf 'YOCTO_BACKEND must be auto, host, or container: %s\n' "$(YOCTO_BACKEND)" >&2; exit 2 ;; \
+	esac; \
+	if [ "$(YOCTO_BACKEND)" = "host" ] || \
+		{ [ "$(YOCTO_BACKEND)" = "auto" ] && \
+		  { ! "$(DOCKER)" version >/dev/null 2>&1 || \
+		    ! command -v "$(DOCKER)" >/dev/null 2>&1; } && \
+		  [ -f "$(YOCTO_POKY)/oe-init-build-env" ]; }; then \
+		YOCTO_POKY="$(YOCTO_POKY)" \
+		YOCTO_BUILD_DIR="$(YOCTO_BUILD_DIR)" \
+		YOCTO_META_RISCV="$(YOCTO_META_RISCV)" \
+		YOCTO_DOWNLOADS="$(YOCTO_DOWNLOADS)" \
+		YOCTO_SSTATE="$(YOCTO_SSTATE)" \
+		YOCTO_HOST_SKIP_OPENSBI_PATCH="$(YOCTO_HOST_SKIP_OPENSBI_PATCH)" \
+		./scripts/yocto-host-build --setup-only; \
+	else \
+		./scripts/yocto-init; \
+	fi
 
 k230-setup: yocto-init
-	@cd "$(ROOT_DIR)" && ./scripts/yocto-k230-setup
+	@set -eu; \
+	cd "$(ROOT_DIR)"; \
+	if [ "$(YOCTO_BACKEND)" = "host" ] || \
+		{ [ "$(YOCTO_BACKEND)" = "auto" ] && \
+		  { ! "$(DOCKER)" version >/dev/null 2>&1 || \
+		    ! command -v "$(DOCKER)" >/dev/null 2>&1; } && \
+		  [ -f "$(YOCTO_POKY)/oe-init-build-env" ]; }; then \
+		:; \
+	else \
+		./scripts/yocto-k230-setup; \
+	fi
 
 # This is deliberately the SDK-free path.  The SDK-compatible GPT image is a
 # separate opt-in target because direct initrd/WIC boots do not need it.
 k230-build: k230-setup
-	@cd "$(ROOT_DIR)" && ./scripts/yocto-bitbake "$(IMAGE_TARGET)"
-	@cd "$(ROOT_DIR)" && ./scripts/yocto-export-deploy --clean "$(DEPLOY_DIR)"
+	@set -eu; \
+	cd "$(ROOT_DIR)"; \
+	if [ "$(YOCTO_BACKEND)" = "host" ] || \
+		{ [ "$(YOCTO_BACKEND)" = "auto" ] && \
+		  { ! "$(DOCKER)" version >/dev/null 2>&1 || \
+		    ! command -v "$(DOCKER)" >/dev/null 2>&1; } && \
+		  [ -f "$(YOCTO_POKY)/oe-init-build-env" ]; }; then \
+		YOCTO_POKY="$(YOCTO_POKY)" \
+		YOCTO_BUILD_DIR="$(YOCTO_BUILD_DIR)" \
+		YOCTO_META_RISCV="$(YOCTO_META_RISCV)" \
+		YOCTO_DOWNLOADS="$(YOCTO_DOWNLOADS)" \
+		YOCTO_SSTATE="$(YOCTO_SSTATE)" \
+		YOCTO_HOST_SKIP_OPENSBI_PATCH="$(YOCTO_HOST_SKIP_OPENSBI_PATCH)" \
+		./scripts/yocto-host-build --image "$(IMAGE_TARGET)" --deploy "$(DEPLOY_DIR)"; \
+	else \
+		./scripts/yocto-bitbake "$(IMAGE_TARGET)"; \
+		./scripts/yocto-export-deploy --clean "$(DEPLOY_DIR)"; \
+	fi
 
 qemu-build:
 	@set -eu; \

@@ -117,6 +117,19 @@ the optional SDK image:
 make k230-build
 ```
 
+`YOCTO_BACKEND=auto` is the default. It uses the container workflow when a
+Docker engine is reachable and falls back to the local Poky checkout when
+Docker is unavailable. The host defaults are `~/yocto/poky` and
+`build-artifacts/host-k230`; override them when needed:
+
+```bash
+make k230-qemu YOCTO_BACKEND=host \
+  YOCTO_POKY=/path/to/poky \
+  YOCTO_BUILD_DIR=build-artifacts/host-k230
+```
+
+Use `YOCTO_BACKEND=container` to require Docker explicitly.
+
 The exported artifacts are written to:
 
 ```text
