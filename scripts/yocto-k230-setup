@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+exec "$script_dir/yocto-shell" bash -lc '
+set -euo pipefail
+
+setup_init=""
+if [ -n "${YOCTO_SETUP_DIR:-}" ] && [ -f "${YOCTO_SETUP_DIR}/build/init-build-env" ]; then
+    setup_init="${YOCTO_SETUP_DIR}/build/init-build-env"
+elif [ -f /work/build/build/init-build-env ]; then
+    setup_init="/work/build/build/init-build-env"
+else
+    setup_init="$(find /work/build -mindepth 3 -maxdepth 4 -path "*/build/init-build-env" -print 2>/dev/null | sort | head -n 1)"
+fi
+
+if [ -z "$setup_init" ]; then
+    cat >&2 <<EOF
+Cannot find a Yocto build environment.
+
+Run:
+  ./scripts/yocto-init
+EOF
+    exit 2
+fi
+
+set +u
+source "$setup_init" >/dev/null
+set -u
+
+mkdir -p conf
+
+layer_path="/work/src"
+if [ ! -f "$layer_path/conf/layer.conf" ] && [ -f /work/src/meta-k230/conf/layer.conf ]; then
+    layer_path="/work/src/meta-k230"
+fi
+
+if [ ! -f "$layer_path/conf/layer.conf" ]; then
+    printf "Cannot find meta-k230 layer at /work/src or /work/src/meta-k230.\n" >&2
+    exit 2
+fi
+
+if [ -f conf/bblayers.conf ]; then
+    if [ "$layer_path" = "/work/src" ]; then
+        sed -i "s|/work/src/meta-k230|/work/src|g" conf/bblayers.conf
+    elif [ "$layer_path" = "/work/src/meta-k230" ]; then
+        sed -i "s| /work/src | /work/src/meta-k230 |g" conf/bblayers.conf
+        sed -i "s|^  /work/src \\\\$|  /work/src/meta-k230 \\\\|g" conf/bblayers.conf
+    fi
+fi
+
+if ! bitbake-layers show-layers 2>/dev/null | awk "{print \$2}" | grep -qx "$layer_path"; then
+    bitbake-layers add-layer "$layer_path"
+fi
+
+if [ -f conf/toolcfg.conf ]; then
+    # bitbake-setup controls MACHINE/DISTRO with fragments. Replace the
+    # generated defaults with the K230 fragments from this layer.
+    sed -i "s|^OE_FRAGMENTS .*$|OE_FRAGMENTS += \"distro/r2os machine/k230-canmv\"|" conf/toolcfg.conf
+fi
+
+if ! grep -q "# Added by scripts/yocto-k230-setup." conf/local.conf 2>/dev/null; then
+    cat >> conf/local.conf <<EOF
+
+# Added by scripts/yocto-k230-setup.
+DL_DIR = "/work/downloads"
+SSTATE_DIR = "/work/sstate"
+BB_NUMBER_THREADS ?= "${YOCTO_BB_THREADS:-12}"
+PARALLEL_MAKE ?= "-j ${YOCTO_PARALLEL_MAKE_JOBS:-12}"
+EOF
+fi
+
+bitbake-layers show-layers
+'

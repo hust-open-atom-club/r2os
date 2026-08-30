@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/yocto-common.sh"
+
+yocto_require_docker
+
+export DOCKER_BUILDKIT="${DOCKER_BUILDKIT:-1}"
+
+exec "$DOCKER" build \
+    --platform "$YOCTO_PLATFORM" \
+    --file "$YOCTO_ROOT/docker/yocto-ubuntu24.Dockerfile" \
+    --tag "$YOCTO_IMAGE" \
+    "$YOCTO_ROOT"

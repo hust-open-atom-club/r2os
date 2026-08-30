@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+setup_config="${YOCTO_SETUP_CONFIG:-poky-wrynose}"
+bitbake_config="${YOCTO_BITBAKE_CONFIG:-poky}"
+distro_fragment="${YOCTO_DISTRO_FRAGMENT:-distro/poky}"
+machine_fragment="${YOCTO_MACHINE_FRAGMENT:-machine/qemux86-64}"
+
+exec "$script_dir/yocto-shell" bash -lc '
+set -euo pipefail
+
+setup_config="$1"
+bitbake_config="$2"
+distro_fragment="$3"
+machine_fragment="$4"
+
+cd /work/build
+
+existing_setup="$(find /work/build -mindepth 3 -maxdepth 4 -path "*/build/init-build-env" -print 2>/dev/null | sort | head -n 1)"
+if [ -n "$existing_setup" ]; then
+    printf "%s\n" "$existing_setup"
+    exit 0
+fi
+
+if [ ! -d bitbake/.git ]; then
+    git clone https://git.openembedded.org/bitbake bitbake
+else
+    git -C bitbake fetch --prune
+fi
+
+./bitbake/bin/bitbake-setup init \
+    --non-interactive \
+    "$setup_config" \
+    "$bitbake_config" \
+    "$distro_fragment" \
+    "$machine_fragment"
+
+find /work/build -mindepth 3 -maxdepth 4 -path "*/build/init-build-env" -print | sort
+' yocto-init "$setup_config" "$bitbake_config" "$distro_fragment" "$machine_fragment"

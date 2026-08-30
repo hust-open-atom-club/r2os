@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+run_bitbake=0
+run_export=0
+run_qemu_smoke=0
+run_qemu_smoke_all=0
+qemu_mode="initrd"
+deploy_dir="${K230_DEPLOY_DIR:-build-artifacts/k230-canmv}"
+qemu_timeout="${K230_QEMU_SMOKE_TIMEOUT:-120}"
+
+usage() {
+    cat <<EOF
+Usage: $0 [--bitbake] [--export-deploy] [--qemu-smoke] [--qemu-smoke-all] [--qemu-mode MODE] [--deploy DIR] [--timeout SECONDS]
+
+Run fast static checks by default:
+  shell syntax for shell scripts
+  Python bytecode compilation
+  Python unit tests
+  K230 DTS compilation
+
+Optional checks:
+  --bitbake        Build k230-core-image with scripts/yocto-bitbake.
+  --export-deploy  Export deploy artifacts with scripts/yocto-export-deploy.
+  --qemu-smoke     Boot QEMU, enter the shell, and run fastfetch.
+  --qemu-smoke-all Boot all three QEMU paths in sequence: initrd, sd, uboot.
+  --qemu-mode MODE QEMU smoke mode: initrd, sd, or uboot (default: initrd).
+  --deploy DIR     Deploy directory for QEMU smoke.
+  --timeout SEC    QEMU smoke timeout in seconds (default: 120).
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --bitbake)
+            run_bitbake=1
+            shift
+            ;;
+        --export-deploy)
+            run_export=1
+            shift
+            ;;
+        --qemu-smoke-all)
+            run_qemu_smoke_all=1
+            run_qemu_smoke=1
+            shift
+            ;;
+        --qemu-smoke)
+            run_qemu_smoke=1
+            shift
+            ;;
+        --qemu-mode)
+            qemu_mode="$2"
+            shift 2
+            ;;
+        --deploy)
+            deploy_dir="$2"
+            shift 2
+            ;;
+        --timeout)
+            qemu_timeout="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+case "$qemu_mode" in
+    initrd|sd|uboot) ;;
+    *)
+        printf 'Invalid --qemu-mode value: %s\n' "$qemu_mode" >&2
+        exit 2
+        ;;
+esac
+
+case "$qemu_timeout" in
+    ''|*[!0-9]*)
+        printf 'Invalid --timeout value: %s\n' "$qemu_timeout" >&2
+        exit 2
+        ;;
+esac
+
+run_step() {
+    local label="$1"
+    shift
+
+    printf '==> %s\n' "$label"
+    "$@"
+}
+
+run_qemu_smoke() {
+    "$script_dir/k230-qemu-smoke" \
+        --mode "$qemu_mode" \
+        --deploy "$deploy_dir" \
+        --timeout "$qemu_timeout" \
+        --command fastfetch
+}
+
+cd "$repo_root"
+
+shell_scripts=(
+    docker/yocto-entrypoint.sh
+    scripts/k230-check
+    scripts/k230-qemu-run
+    scripts/k230-rtt-system-fetch
+    scripts/k230-sdk-image
+    scripts/yocto-bitbake
+    scripts/yocto-build-image
+    scripts/yocto-build-targets
+    scripts/yocto-common.sh
+    scripts/yocto-export-deploy
+    scripts/yocto-init
+    scripts/yocto-k230-setup
+    scripts/yocto-shell
+    scripts/yocto-volumes
+)
+
+run_step "Shell syntax" bash -n "${shell_scripts[@]}"
+run_step "Python bytecode" python3 -m py_compile scripts/gen-rtt-system scripts/k230-qemu-smoke tests/test_gen_rtt_system.py tests/test_embedded_optimizations.py tests/test_qemu_boot.py
+run_step "Python unit tests" python3 -m unittest tests.test_gen_rtt_system tests.test_embedded_optimizations tests.test_qemu_boot
+
+if ! command -v dtc >/dev/null 2>&1; then
+    printf 'dtc not found; install device-tree-compiler to run DTS checks.\n' >&2
+    exit 2
+fi
+run_step "DTS syntax" dtc -I dts -O dtb -o /tmp/k230-canmv.dtb recipes-kernel/linux/files/k230-canmv.dts
+
+if [ "$run_bitbake" -eq 1 ]; then
+    run_step "BitBake image" "$script_dir/yocto-bitbake" k230-core-image
+fi
+
+if [ "$run_export" -eq 1 ]; then
+    run_step "Deploy export" "$script_dir/yocto-export-deploy"
+fi
+
+if [ "$run_qemu_smoke" -eq 1 ]; then
+    if [ "$run_qemu_smoke_all" -eq 1 ]; then
+        for mode in initrd sd uboot; do
+            qemu_mode="$mode"
+            run_step "QEMU smoke ($mode)" run_qemu_smoke
+        done
+    else
+        run_step "QEMU smoke ($qemu_mode)" run_qemu_smoke
+    fi
+fi
+
+printf 'All requested checks passed.\n'

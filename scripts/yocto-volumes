@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/yocto-common.sh"
+
+yocto_require_docker
+
+for volume in "$YOCTO_BUILD_VOLUME" "$YOCTO_DOWNLOADS_VOLUME" "$YOCTO_SSTATE_VOLUME"; do
+    "$DOCKER" volume inspect "$volume" >/dev/null 2>&1 || "$DOCKER" volume create "$volume" >/dev/null
+    printf '%s\n' "$volume"
+done

@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dest="build-artifacts/k230-canmv"
+dest_set=0
+delete_mode="auto"
+
+usage() {
+    cat <<EOF
+Usage: $0 [--clean|--keep-existing] [DEST]
+
+Export tmp/deploy/images/k230-canmv to DEST.
+
+Defaults:
+  DEST             build-artifacts/k230-canmv
+  --clean          Remove files in DEST that are absent from current deploy.
+  --keep-existing  Keep files in DEST that are absent from the current deploy.
+
+Without --clean or --keep-existing, exports under build-artifacts/ are cleaned
+and other destinations keep existing files.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --clean)
+            delete_mode="clean"
+            shift
+            ;;
+        --keep-existing)
+            delete_mode="keep"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --*)
+            usage >&2
+            exit 2
+            ;;
+        *)
+            if [ "$dest_set" -eq 1 ]; then
+                usage >&2
+                exit 2
+            fi
+            dest="$1"
+            dest_set=1
+            shift
+            ;;
+    esac
+done
+
+case "$dest" in
+    ""|.|./|./.|/*|..|../*|*/..|*/../*)
+        printf "Destination must be a non-root relative path inside the meta-k230 checkout: %s\n" "$dest" >&2
+        exit 2
+        ;;
+esac
+
+delete_extra=0
+case "$delete_mode:$dest" in
+    clean:*|auto:build-artifacts/*)
+        delete_extra=1
+        ;;
+esac
+
+exec "$script_dir/yocto-shell" bash -lc '
+set -euo pipefail
+
+dest="$1"
+delete_extra="$2"
+deploy="$(find /work/build -path "*/tmp/deploy/images/k230-canmv" -type d 2>/dev/null | sort | tail -n 1)"
+if [ -z "$deploy" ] || [ ! -d "$deploy" ]; then
+    cat >&2 <<EOF
+Cannot find tmp/deploy/images/k230-canmv.
+
+Build first:
+  ./scripts/yocto-bitbake k230-core-image
+EOF
+    exit 2
+fi
+
+mkdir -p "/work/src/$dest"
+rsync_args=(-a)
+if [ "$delete_extra" = "1" ]; then
+    rsync_args+=(--delete)
+fi
+rsync "${rsync_args[@]}" "$deploy/." "/work/src/$dest/"
+printf "Exported deploy artifacts to %s\n" "$dest"
+' yocto-export-deploy "$dest" "$delete_extra"

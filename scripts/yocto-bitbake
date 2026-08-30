@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ "$#" -eq 0 ]; then
+    set -- core-image-minimal
+fi
+
+exec "$script_dir/yocto-shell" bash -lc '
+set -euo pipefail
+
+bitbake_args=("$@")
+
+setup_init=""
+if [ -n "${YOCTO_SETUP_DIR:-}" ] && [ -f "${YOCTO_SETUP_DIR}/build/init-build-env" ]; then
+    setup_init="${YOCTO_SETUP_DIR}/build/init-build-env"
+elif [ -f /work/build/build/init-build-env ]; then
+    setup_init="/work/build/build/init-build-env"
+else
+    setup_init="$(find /work/build -mindepth 3 -maxdepth 4 -path "*/build/init-build-env" -print 2>/dev/null | sort | head -n 1)"
+fi
+
+if [ -n "$setup_init" ]; then
+    set +u
+    source "$setup_init" >/dev/null
+    set -u
+elif [ -f ./oe-init-build-env ]; then
+    set +u
+    source ./oe-init-build-env /work/build >/dev/null
+    set -u
+elif [ -f ./poky/oe-init-build-env ]; then
+    set +u
+    source ./poky/oe-init-build-env /work/build >/dev/null
+    set -u
+else
+    cat >&2 <<EOF
+Cannot find a Yocto build environment.
+
+Run:
+  ./scripts/yocto-init
+
+Or put a legacy Yocto/Poky source tree in this directory before running bitbake.
+EOF
+    exit 2
+fi
+
+mkdir -p conf
+
+if ! grep -q "# Added by scripts/yocto-bitbake for Docker on macOS." conf/local.conf 2>/dev/null; then
+    cat >> conf/local.conf <<EOF
+
+# Added by scripts/yocto-bitbake for Docker on macOS.
+DL_DIR = "/work/downloads"
+SSTATE_DIR = "/work/sstate"
+BB_NUMBER_THREADS ?= "${YOCTO_BB_THREADS:-12}"
+PARALLEL_MAKE ?= "-j ${YOCTO_PARALLEL_MAKE_JOBS:-12}"
+EOF
+fi
+
+export BB_SERVER_TIMEOUT="${BB_SERVER_TIMEOUT:--1}"
+
+bitbake "${bitbake_args[@]}"
+' yocto-bitbake "$@"

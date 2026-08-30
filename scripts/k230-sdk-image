@@ -1,0 +1,543 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+deploy_dir="${K230_DEPLOY_DIR:-build-artifacts/k230-canmv}"
+output=""
+load_addr="${K230_SDK_LOAD_ADDR:-0x08000000}"
+sdk_root="${K230_SDK_ROOT:-$HOME/k230-project/sdk/k230_sdk}"
+use_sdk_opensbi=1
+rtt_system="${K230_RTT_SYSTEM:-}"
+no_rtt=0
+
+usage() {
+    cat <<EOF
+Usage: $0 [--deploy DIR] [--output IMAGE] [--load-addr ADDR] [--sdk-root DIR] [--no-sdk-opensbi] [--rtt-system PATH] [--no-rtt]
+
+Generate an SDK-compatible K230 SD image from Yocto deploy artifacts.
+
+The output image uses the SDK layout expected by k230_boot:
+  rtt    partition at 10MiB (big-core firmware, optional)
+  linux  partition at 30MiB containing K230-headed linux_system.bin
+  rootfs partition at 128MiB containing the Yocto ext4 rootfs expanded to the
+         end of the SD image
+  disk   2GiB minimum, growing to the next power of two when needed
+
+Defaults:
+  --deploy        build-artifacts/k230-canmv
+  --output        <deploy>/k230-core-image-k230-canmv.sdk-sdcard.img
+  --load-addr     0x08000000
+  --sdk-root      ~/k230-project/sdk/k230_sdk
+  --rtt-system    auto-detected from prebuilt/ or \$K230_RTT_SYSTEM
+  --no-rtt        skip rtt partition population (no warning)
+
+When the K230 SDK OpenSBI source is present, this script builds the SDK
+OpenSBI payload with the Yocto toolchain because SDK U-Boot expects that
+K230-tuned OpenSBI handoff.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --deploy)
+            deploy_dir="$2"
+            shift 2
+            ;;
+        --output)
+            output="$2"
+            shift 2
+            ;;
+        --load-addr)
+            load_addr="$2"
+            shift 2
+            ;;
+        --sdk-root)
+            sdk_root="$2"
+            shift 2
+            ;;
+        --no-sdk-opensbi)
+            use_sdk_opensbi=0
+            shift
+            ;;
+        --rtt-system)
+            rtt_system="$2"
+            shift 2
+            ;;
+        --no-rtt)
+            no_rtt=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+case "$deploy_dir" in
+    /*) ;;
+    *) deploy_dir="$PWD/$deploy_dir" ;;
+esac
+
+if [ ! -d "$deploy_dir" ]; then
+    printf 'Deploy directory not found: %s\n' "$deploy_dir" >&2
+    exit 2
+fi
+
+deploy_dir="$(cd "$deploy_dir" && pwd)"
+
+if [ -z "$output" ]; then
+    output="$deploy_dir/k230-core-image-k230-canmv.sdk-sdcard.img"
+elif [[ "$output" != /* ]]; then
+    output="$PWD/$output"
+fi
+
+first_existing() {
+    local path
+    for path in "$@"; do
+        if [ -e "$path" ]; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    done
+    return 1
+}
+
+file_size() {
+    stat -f %z "$1" 2>/dev/null || stat -c %s "$1"
+}
+
+to_container_path() {
+    local path="$1"
+    case "$path" in
+        "$repo_root") printf '/work/src\n' ;;
+        "$repo_root"/*) printf '/work/src/%s\n' "${path#"$repo_root"/}" ;;
+        *)
+            printf 'Path must be inside %s when using Yocto native mkimage: %s\n' "$repo_root" "$path" >&2
+            return 1
+            ;;
+    esac
+}
+
+kernel="$(first_existing "$deploy_dir/Image" "$deploy_dir/Image-k230-canmv.bin" "$deploy_dir"/Image--*.bin 2>/dev/null || true)"
+dtb="$(first_existing "$deploy_dir/k230-canmv.dtb" "$deploy_dir/canaan/k230-canmv.dtb" "$deploy_dir"/k230-canmv*.dtb 2>/dev/null || true)"
+fw_payload="$(first_existing "$deploy_dir/fw_payload-sdk-opensbi.bin" "$deploy_dir/fw_payload.bin" 2>/dev/null || true)"
+rootfs="$(first_existing "$deploy_dir/k230-core-image-k230-canmv.rootfs.ext4" "$deploy_dir"/*.rootfs.ext4 2>/dev/null || true)"
+
+# -- locate rtt_system.bin (optional) --
+sdk_artifact_dir="${K230_SDK_ARTIFACT_DIR:-}"
+if [ -z "$sdk_artifact_dir" ]; then
+    if [ -f "$repo_root/prebuilt/k230-sdk/riscv-nomtee/u-boot" ]; then
+        sdk_artifact_dir="$repo_root/prebuilt/k230-sdk/riscv-nomtee"
+    else
+        sdk_artifact_dir="$HOME/k230-project/images/riscv-nomtee"
+    fi
+fi
+if [ "$no_rtt" -eq 1 ]; then
+    rtt_system=""
+elif [ -z "$rtt_system" ]; then
+    rtt_system="$(first_existing \
+        "$repo_root/prebuilt/k230-sdk/riscv-nomtee/rtt_system.bin" \
+        "$sdk_artifact_dir/rtt_system.bin" \
+        "$HOME/k230-project/images/riscv-nomtee/rtt_system.bin" \
+        2>/dev/null || true)"
+fi
+if [ -n "$rtt_system" ] && [ ! -f "$rtt_system" ]; then
+    printf 'rtt_system.bin not found at specified path: %s\n' "$rtt_system" >&2
+    exit 2
+fi
+if [ -z "$rtt_system" ]; then
+    printf 'Note: rtt_system.bin not found -- rtt partition will be empty (no KPU/big-core support).\n' >&2
+fi
+
+if [ -z "$kernel" ] || [ -z "$dtb" ] || [ -z "$rootfs" ]; then
+    cat >&2 <<EOF
+Missing required deploy artifact in $deploy_dir.
+
+Required:
+  Image
+  k230-canmv.dtb
+  *.rootfs.ext4
+EOF
+    exit 2
+fi
+
+work_dir="$deploy_dir/k230-sdk-image-work"
+rm -rf "$work_dir"
+mkdir -p "$work_dir" "$(dirname "$output")"
+
+build_sdk_opensbi_payload() {
+    local src="$1"
+    local src_copy="$work_dir/sdk-opensbi-src"
+    local build_dir="$work_dir/sdk-opensbi-build"
+    local c_src c_build c_kernel c_out
+
+    rm -rf "$src_copy" "$build_dir"
+    cp -R "$src" "$src_copy"
+
+    c_src="$(to_container_path "$src_copy")"
+    c_build="$(to_container_path "$build_dir")"
+    c_kernel="$(to_container_path "$kernel")"
+    c_out="$(to_container_path "$work_dir/fw_payload-sdk-opensbi.bin")"
+
+    "$script_dir/yocto-shell" bash -lc '
+        set -euo pipefail
+        work="$(find /work/build -path "*/tmp/work/riscv64imafdc-poky-linux/opensbi/1.8.1" -type d 2>/dev/null | sort | tail -n 1)"
+        if [ -z "$work" ]; then
+            printf "Yocto OpenSBI work directory not found. Build k230-core-image first.\n" >&2
+            exit 2
+        fi
+        toolchain_bin="$work/recipe-sysroot-native/usr/bin/riscv64-poky-linux"
+        sysroot="$work/recipe-sysroot"
+        if [ ! -x "$toolchain_bin/riscv64-poky-linux-gcc" ] || [ ! -d "$sysroot" ]; then
+            printf "Yocto OpenSBI toolchain sysroot not found. Build k230-core-image first.\n" >&2
+            exit 2
+        fi
+        export PATH="$toolchain_bin:$PATH"
+        mkdir -p "$2"
+        cd "$1"
+        if ! make CROSS_COMPILE=riscv64-poky-linux- PLATFORM=generic \
+            FW_PAYLOAD_PATH="$3" O="$2" K230_LITTLE_CORE=1 OPENSBI_QUIET=1 \
+            KCFLAGS="-std=gnu11 --sysroot=$sysroot" -j"${YOCTO_PARALLEL_MAKE_JOBS:-12}" \
+            >"$2/build.log" 2>&1; then
+            cat "$2/build.log" >&2
+            exit 1
+        fi
+        cp "$2/platform/generic/firmware/fw_payload.bin" "$4"
+    ' _ "$c_src" "$c_build" "$c_kernel" "$c_out"
+
+    fw_payload="$work_dir/fw_payload-sdk-opensbi.bin"
+}
+
+if [ "$use_sdk_opensbi" -eq 1 ] && [ -d "$sdk_root/src/common/opensbi" ]; then
+    build_sdk_opensbi_payload "$sdk_root/src/common/opensbi"
+    cp -f "$fw_payload" "$deploy_dir/fw_payload-sdk-opensbi.bin"
+elif [ -z "$fw_payload" ]; then
+    cat >&2 <<EOF
+No fw_payload.bin found in $deploy_dir and SDK OpenSBI source was not available.
+
+Expected SDK OpenSBI source:
+  $sdk_root/src/common/opensbi
+EOF
+    exit 2
+fi
+
+if [ "$(file_size "$fw_payload")" -le "$(file_size "$kernel")" ]; then
+    cat >&2 <<EOF
+fw_payload.bin does not appear to contain the Linux Image payload.
+
+Use the SDK OpenSBI source with:
+  $0 --sdk-root /path/to/k230_sdk --deploy "$deploy_dir"
+EOF
+    exit 2
+fi
+
+cp -f "$fw_payload" "$work_dir/fw_payload.bin"
+cp -f "$dtb" "$work_dir/k230.dtb"
+printf 'a\n' > "$work_dir/rd"
+
+gzip -n -9 -c "$work_dir/fw_payload.bin" > "$work_dir/fw_payload.bin.gz"
+python3 - "$work_dir/fw_payload.bin.gz" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+with path.open("r+b") as f:
+    header = bytearray(f.read(10))
+    if len(header) < 10 or header[0:2] != b"\x1f\x8b" or header[2] != 8:
+        raise SystemExit(f"{path}: not a standard gzip stream")
+    header[2] = 9
+    f.seek(0)
+    f.write(header)
+PY
+
+run_mkimage() {
+    local payload_gz="$1"
+    local rd="$2"
+    local image_dtb="$3"
+    local out="$4"
+
+    if command -v mkimage >/dev/null 2>&1; then
+        mkimage -A riscv -O linux -T multi -C gzip \
+            -a "$load_addr" -e "$load_addr" -n linux \
+            -d "$payload_gz:$rd:$image_dtb" "$out"
+        return
+    fi
+
+    local c_payload_gz c_rd c_dtb c_out
+    c_payload_gz="$(to_container_path "$payload_gz")"
+    c_rd="$(to_container_path "$rd")"
+    c_dtb="$(to_container_path "$image_dtb")"
+    c_out="$(to_container_path "$out")"
+
+    "$script_dir/yocto-shell" bash -lc '
+        set -euo pipefail
+        mkimage="$(find /work/build -path "*/tmp/work/*/u-boot-tools-native/*/build/tools/mkimage" -type f -perm -111 2>/dev/null | sort | tail -n 1)"
+        if [ ! -x "$mkimage" ]; then
+            printf "Yocto native mkimage not found. Build k230-core-image first.\n" >&2
+            exit 2
+        fi
+        "$mkimage" -A riscv -O linux -T multi -C gzip \
+            -a "$1" -e "$1" -n linux \
+            -d "$2:$3:$4" "$5"
+    ' _ "$load_addr" "$c_payload_gz" "$c_rd" "$c_dtb" "$c_out"
+}
+
+run_mkimage "$work_dir/fw_payload.bin.gz" "$work_dir/rd" "$work_dir/k230.dtb" "$work_dir/ulinux.bin" >/dev/null
+
+python3 - "$work_dir/ulinux.bin" "$work_dir/linux_system.bin" <<'PY'
+import hashlib
+import pathlib
+import struct
+import sys
+
+src = pathlib.Path(sys.argv[1])
+dst = pathlib.Path(sys.argv[2])
+
+payload = b"\x00\x00\x00\x00" + src.read_bytes()
+header = (
+    b"K230"
+    + struct.pack("<II", len(payload), 0)
+    + hashlib.sha256(payload).digest()
+    + bytes(516 - 32)
+)
+dst.write_bytes(header + payload)
+PY
+
+sdk_layout_vars="$(python3 - "$rootfs" <<'PY'
+import pathlib
+import sys
+
+SECTOR = 512
+MIB = 1024 * 1024
+
+rootfs = pathlib.Path(sys.argv[1])
+
+def align_up(value, align):
+    return ((value + align - 1) // align) * align
+
+def next_power_of_two(value):
+    out = 1
+    while out < value:
+        out <<= 1
+    return out
+
+def sectors(byte_count):
+    return byte_count // SECTOR
+
+root_start = sectors(128 * MIB)
+rootfs_size = rootfs.stat().st_size
+min_image_size = align_up(root_start * SECTOR + rootfs_size + (33 * SECTOR), MIB)
+image_size = next_power_of_two(max(2048 * MIB, min_image_size))
+total_sectors = image_size // SECTOR
+last_usable = total_sectors - 34
+root_part_bytes = (last_usable - root_start + 1) * SECTOR
+
+print(f"image_size={image_size}")
+print(f"root_part_bytes={root_part_bytes}")
+PY
+)"
+eval "$sdk_layout_vars"
+
+resize_ext4_to_fill_partition() {
+    local image="$1"
+    local size="$2"
+    local c_image
+
+    cp -f "$rootfs" "$image"
+    truncate -s "$size" "$image"
+
+    if command -v e2fsck >/dev/null 2>&1 && command -v resize2fs >/dev/null 2>&1; then
+        set +e
+        e2fsck -fy "$image"
+        rc="$?"
+        set -e
+        if [ "$rc" -gt 1 ]; then
+            printf 'e2fsck failed for %s\n' "$image" >&2
+            exit "$rc"
+        fi
+        resize2fs "$image" >/dev/null
+        return
+    fi
+
+    c_image="$(to_container_path "$image")"
+    "$script_dir/yocto-shell" bash -lc '
+        set -euo pipefail
+        e2fsck="$(find /work/build -path "*/tmp/work/*/e2fsprogs-native/*/recipe-sysroot-native/sbin/e2fsck" -type f -perm -111 2>/dev/null | sort | tail -n 1)"
+        resize2fs="$(find /work/build -path "*/tmp/work/*/e2fsprogs-native/*/recipe-sysroot-native/sbin/resize2fs" -type f -perm -111 2>/dev/null | sort | tail -n 1)"
+        if [ ! -x "$e2fsck" ] || [ ! -x "$resize2fs" ]; then
+            printf "Yocto native e2fsck/resize2fs not found. Build k230-core-image first.\n" >&2
+            exit 2
+        fi
+        set +e
+        "$e2fsck" -fy "$1"
+        rc="$?"
+        set -e
+        if [ "$rc" -gt 1 ]; then
+            exit "$rc"
+        fi
+        "$resize2fs" "$1" >/dev/null
+    ' _ "$c_image"
+}
+
+expanded_rootfs="$work_dir/rootfs-expanded.ext4"
+resize_ext4_to_fill_partition "$expanded_rootfs" "$root_part_bytes"
+rootfs="$expanded_rootfs"
+
+
+python3 - "$output" "$work_dir/linux_system.bin" "$rootfs" "$rtt_system" <<'PY'
+import binascii
+import pathlib
+import shutil
+import struct
+import sys
+import uuid
+
+SECTOR = 512
+MIB = 1024 * 1024
+
+output = pathlib.Path(sys.argv[1])
+linux_system = pathlib.Path(sys.argv[2])
+rootfs = pathlib.Path(sys.argv[3])
+rtt_system_path = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else ""
+
+def align_up(value, align):
+    return ((value + align - 1) // align) * align
+
+def next_power_of_two(value):
+    out = 1
+    while out < value:
+        out <<= 1
+    return out
+
+def sectors(byte_count):
+    return byte_count // SECTOR
+
+rtt_start = sectors(10 * MIB)
+rtt_size = sectors(20 * MIB)
+linux_start = sectors(30 * MIB)
+linux_size = sectors(50 * MIB)
+root_start = sectors(128 * MIB)
+
+rootfs_size = rootfs.stat().st_size
+min_image_size = align_up(root_start * SECTOR + rootfs_size + (33 * SECTOR), MIB)
+image_size = next_power_of_two(max(2048 * MIB, min_image_size))
+total_sectors = image_size // SECTOR
+last_lba = total_sectors - 1
+backup_entries_lba = last_lba - 32
+first_usable = 34
+last_usable = last_lba - 33
+root_size = last_usable - root_start + 1
+
+parts = [
+    ("rtt", rtt_start, rtt_start + rtt_size - 1, "0FC63DAF-8483-4772-8E79-3D69D8477DE4"),
+    ("linux", linux_start, linux_start + linux_size - 1, "0FC63DAF-8483-4772-8E79-3D69D8477DE4"),
+    ("rootfs", root_start, last_usable, "0FC63DAF-8483-4772-8E79-3D69D8477DE4"),
+]
+
+if linux_system.stat().st_size > linux_size * SECTOR:
+    raise SystemExit("linux_system.bin is larger than the 50MiB SDK linux partition")
+if rootfs_size > root_size * SECTOR:
+    raise SystemExit("rootfs is larger than the allocated rootfs partition")
+for name, start, end, _type_guid in parts:
+    if start < first_usable or end > last_usable or start > end:
+        raise SystemExit(f"invalid GPT partition geometry for {name}")
+
+entries = bytearray(128 * 128)
+for index, (name, start, end, type_guid) in enumerate(parts):
+    off = index * 128
+    entries[off : off + 16] = uuid.UUID(type_guid).bytes_le
+    entries[off + 16 : off + 32] = uuid.uuid5(uuid.NAMESPACE_DNS, f"k230-yocto-{name}").bytes_le
+    struct.pack_into("<QQQ", entries, off + 32, start, end, 0)
+    encoded_name = name.encode("utf-16le")[:72]
+    entries[off + 56 : off + 56 + len(encoded_name)] = encoded_name
+
+entries_crc = binascii.crc32(entries) & 0xFFFFFFFF
+disk_guid = uuid.uuid5(uuid.NAMESPACE_DNS, "k230-yocto-sdk-sdcard").bytes_le
+
+def make_header(current_lba, backup_lba, entries_lba):
+    header = bytearray(SECTOR)
+    struct.pack_into(
+        "<8sIIIIQQQQ16sQIII",
+        header,
+        0,
+        b"EFI PART",
+        0x00010000,
+        92,
+        0,
+        0,
+        current_lba,
+        backup_lba,
+        first_usable,
+        last_usable,
+        disk_guid,
+        entries_lba,
+        128,
+        128,
+        entries_crc,
+    )
+    crc = binascii.crc32(header[:92]) & 0xFFFFFFFF
+    struct.pack_into("<I", header, 16, crc)
+    return bytes(header)
+
+mbr = bytearray(SECTOR)
+struct.pack_into(
+    "<B3sB3sII",
+    mbr,
+    446,
+    0,
+    b"\x00\x02\x00",
+    0xEE,
+    b"\xff\xff\xff",
+    1,
+    min(total_sectors - 1, 0xFFFFFFFF),
+)
+mbr[510:512] = b"\x55\xaa"
+
+with output.open("wb") as image:
+    image.truncate(image_size)
+    image.seek(0)
+    image.write(mbr)
+    image.seek(SECTOR)
+    image.write(make_header(1, last_lba, 2))
+    image.seek(2 * SECTOR)
+    image.write(entries)
+    image.seek(backup_entries_lba * SECTOR)
+    image.write(entries)
+    image.seek(last_lba * SECTOR)
+    image.write(make_header(last_lba, 1, backup_entries_lba))
+
+    if rtt_system_path:
+        rtt_bin = pathlib.Path(rtt_system_path)
+        rtt_data = rtt_bin.read_bytes()
+        if len(rtt_data) > rtt_size * SECTOR:
+            raise SystemExit(
+                f"rtt_system.bin ({len(rtt_data)} bytes) exceeds "
+                f"rtt partition size ({rtt_size * SECTOR} bytes)"
+            )
+        image.seek(rtt_start * SECTOR)
+        image.write(rtt_data)
+
+    image.seek(linux_start * SECTOR)
+    with linux_system.open("rb") as src:
+        shutil.copyfileobj(src, image, 1024 * 1024)
+
+    image.seek(root_start * SECTOR)
+    with rootfs.open("rb") as src:
+        shutil.copyfileobj(src, image, 1024 * 1024)
+
+print(f"{output}")
+PY
+
+printf 'Created SDK-compatible SD image: %s\n' "$output"
+printf 'linux_system.bin: %s\n' "$work_dir/linux_system.bin"
+printf 'fw_payload.bin: %s\n' "$fw_payload"
+if [ -n "$rtt_system" ]; then
+    printf 'rtt_system.bin: %s\n' "$rtt_system"
+fi

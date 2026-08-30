@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/yocto-common.sh"
+
+yocto_require_docker
+
+if ! "$DOCKER" image inspect "$YOCTO_IMAGE" >/dev/null 2>&1; then
+    "$YOCTO_ROOT/scripts/yocto-build-image"
+fi
+
+"$YOCTO_ROOT/scripts/yocto-volumes" >/dev/null
+
+cmd=("$@")
+if [ "${#cmd[@]}" -eq 0 ]; then
+    cmd=(bash)
+fi
+
+container_proxy() {
+    local value="$1"
+    value="${value//127.0.0.1/host.docker.internal}"
+    value="${value//localhost/host.docker.internal}"
+    printf '%s\n' "$value"
+}
+
+container_http_proxy="$(container_proxy "${http_proxy:-${HTTP_PROXY:-}}")"
+container_https_proxy="$(container_proxy "${https_proxy:-${HTTPS_PROXY:-}}")"
+container_all_proxy="$(container_proxy "${all_proxy:-${ALL_PROXY:-}}")"
+container_no_proxy="${no_proxy:-${NO_PROXY:-}}"
+
+container_label_prefix="org.yoctoproject.yocto-shell"
+
+docker_container_exists() {
+    "$DOCKER" container inspect "$YOCTO_CONTAINER_NAME" >/dev/null 2>&1
+}
+
+docker_container_running() {
+    [ "$("$DOCKER" container inspect -f '{{.State.Running}}' "$YOCTO_CONTAINER_NAME" 2>/dev/null || printf 'false')" = "true" ]
+}
+
+docker_container_label() {
+    "$DOCKER" container inspect -f "{{ index .Config.Labels \"$1\" }}" "$YOCTO_CONTAINER_NAME" 2>/dev/null || true
+}
+
+container_mismatch() {
+    [ "$(docker_container_label "$container_label_prefix.root")" != "$YOCTO_ROOT" ] \
+        || [ "$(docker_container_label "$container_label_prefix.platform")" != "$YOCTO_PLATFORM" ] \
+        || [ "$(docker_container_label "$container_label_prefix.image")" != "$YOCTO_IMAGE" ] \
+        || [ "$(docker_container_label "$container_label_prefix.build-volume")" != "$YOCTO_BUILD_VOLUME" ] \
+        || [ "$(docker_container_label "$container_label_prefix.downloads-volume")" != "$YOCTO_DOWNLOADS_VOLUME" ] \
+        || [ "$(docker_container_label "$container_label_prefix.sstate-volume")" != "$YOCTO_SSTATE_VOLUME" ]
+}
+
+ensure_managed_container() {
+    if ! docker_container_exists; then
+        return 0
+    fi
+
+    if [ "$(docker_container_label "$container_label_prefix.managed")" != "1" ]; then
+        printf 'Container %s already exists but was not created by yocto-shell. Set YOCTO_CONTAINER_NAME or remove the conflicting container.\n' "$YOCTO_CONTAINER_NAME" >&2
+        exit 2
+    fi
+
+    if container_mismatch; then
+        if docker_container_running; then
+            printf 'Container %s was created with different Yocto settings and is still running. Stop/remove it or set YOCTO_CONTAINER_NAME.\n' "$YOCTO_CONTAINER_NAME" >&2
+            exit 2
+        fi
+        "$DOCKER" rm "$YOCTO_CONTAINER_NAME" >/dev/null
+    fi
+}
+
+create_container() {
+    "$DOCKER" run -d \
+        --name "$YOCTO_CONTAINER_NAME" \
+        --platform "$YOCTO_PLATFORM" \
+        --hostname yocto-dev \
+        --env "LOCAL_UID=$(id -u)" \
+        --env "LOCAL_GID=$(id -g)" \
+        --env "LOCAL_USER=$(id -un)" \
+        --env "HOME=/work/home" \
+        --env "YOCTO_HOME=/work/home" \
+        --env "YOCTO_BB_THREADS=$YOCTO_BB_THREADS" \
+        --env "YOCTO_PARALLEL_MAKE_JOBS=$YOCTO_PARALLEL_MAKE_JOBS" \
+        --env "http_proxy=$container_http_proxy" \
+        --env "https_proxy=$container_https_proxy" \
+        --env "HTTP_PROXY=$container_http_proxy" \
+        --env "HTTPS_PROXY=$container_https_proxy" \
+        --env "all_proxy=$container_all_proxy" \
+        --env "ALL_PROXY=$container_all_proxy" \
+        --env "no_proxy=$container_no_proxy" \
+        --env "NO_PROXY=$container_no_proxy" \
+        --label "$container_label_prefix.managed=1" \
+        --label "$container_label_prefix.root=$YOCTO_ROOT" \
+        --label "$container_label_prefix.platform=$YOCTO_PLATFORM" \
+        --label "$container_label_prefix.image=$YOCTO_IMAGE" \
+        --label "$container_label_prefix.build-volume=$YOCTO_BUILD_VOLUME" \
+        --label "$container_label_prefix.downloads-volume=$YOCTO_DOWNLOADS_VOLUME" \
+        --label "$container_label_prefix.sstate-volume=$YOCTO_SSTATE_VOLUME" \
+        --volume "$YOCTO_ROOT:/work/src" \
+        --volume "$YOCTO_BUILD_VOLUME:/work/build" \
+        --volume "$YOCTO_DOWNLOADS_VOLUME:/work/downloads" \
+        --volume "$YOCTO_SSTATE_VOLUME:/work/sstate" \
+        --workdir /work/src \
+        "$YOCTO_IMAGE" \
+        sleep infinity >/dev/null
+}
+
+ensure_container_running() {
+    ensure_managed_container
+    if ! docker_container_exists; then
+        create_container
+    elif ! docker_container_running; then
+        "$DOCKER" start "$YOCTO_CONTAINER_NAME" >/dev/null
+    fi
+}
+
+container_status() {
+    if docker_container_exists; then
+        "$DOCKER" container inspect -f 'name={{.Name}} state={{.State.Status}} image={{.Config.Image}}' "$YOCTO_CONTAINER_NAME"
+    else
+        printf 'not-created name=%s\n' "$YOCTO_CONTAINER_NAME"
+    fi
+}
+
+case "${cmd[0]}" in
+    --container-name)
+        printf '%s\n' "$YOCTO_CONTAINER_NAME"
+        exit 0
+        ;;
+    --container-status)
+        container_status
+        exit 0
+        ;;
+    --container-start)
+        ensure_container_running
+        container_status
+        exit 0
+        ;;
+    --container-stop)
+        if docker_container_exists; then
+            ensure_managed_container
+            "$DOCKER" stop "$YOCTO_CONTAINER_NAME" >/dev/null
+        fi
+        container_status
+        exit 0
+        ;;
+    --container-rm)
+        if docker_container_exists; then
+            ensure_managed_container
+            "$DOCKER" rm -f "$YOCTO_CONTAINER_NAME" >/dev/null
+        fi
+        container_status
+        exit 0
+        ;;
+esac
+
+ensure_container_running
+
+exec_args=(exec --user "$(id -u):$(id -g)" --workdir /work/src \
+    --env "HOME=/work/home" \
+    --env "YOCTO_HOME=/work/home" \
+    --env "YOCTO_BB_THREADS=$YOCTO_BB_THREADS" \
+    --env "YOCTO_PARALLEL_MAKE_JOBS=$YOCTO_PARALLEL_MAKE_JOBS" \
+    --env "http_proxy=$container_http_proxy" \
+    --env "https_proxy=$container_https_proxy" \
+    --env "HTTP_PROXY=$container_http_proxy" \
+    --env "HTTPS_PROXY=$container_https_proxy" \
+    --env "all_proxy=$container_all_proxy" \
+    --env "ALL_PROXY=$container_all_proxy" \
+    --env "no_proxy=$container_no_proxy" \
+    --env "NO_PROXY=$container_no_proxy")
+if [ -t 0 ] && [ -t 1 ]; then
+    exec_args+=(-it)
+fi
+
+exec "$DOCKER" "${exec_args[@]}" "$YOCTO_CONTAINER_NAME" "${cmd[@]}"

@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+image_target="${K230_IMAGE_TARGET:-k230-core-image}"
+deploy_dir="build-artifacts/k230-canmv"
+make_sdk=1
+raw_targets=()
+component_targets=()
+
+usage() {
+    cat <<EOF
+Usage: $0 [OPTIONS] TARGET [TARGET...]
+
+Build one or more BitBake targets, rebuild the K230 image, export deploy
+artifacts, and generate the SDK-compatible SD image.
+
+Targets are BitBake targets such as fastfetch, linux-k230, opensbi, or
+packagegroup-k230-common. Convenience aliases:
+  kernel, linux  -> linux-k230
+  image          -> the selected image target
+
+Options:
+  --image TARGET  Image target to build after components.
+                  Default: ${K230_IMAGE_TARGET:-k230-core-image}
+  --deploy DIR    Export destination inside this checkout.
+                  Default: build-artifacts/k230-canmv
+  --no-sdk        Skip SDK-compatible SD image generation.
+  -h, --help      Show this help.
+
+Examples:
+  $0 fastfetch
+  $0 fastfetch linux-k230
+  $0 --no-sdk packagegroup-k230-common
+EOF
+}
+
+append_unique_component_target() {
+    local candidate="$1"
+    local existing
+
+    if [ "${#component_targets[@]}" -gt 0 ]; then
+        for existing in "${component_targets[@]}"; do
+            if [ "$existing" = "$candidate" ]; then
+                return
+            fi
+        done
+    fi
+
+    component_targets+=("$candidate")
+}
+
+normalise_target() {
+    case "$1" in
+        kernel|linux)
+            printf '%s\n' "linux-k230"
+            ;;
+        image)
+            printf '%s\n' "$image_target"
+            ;;
+        *)
+            printf '%s\n' "$1"
+            ;;
+    esac
+}
+
+run_step() {
+    local label="$1"
+    shift
+
+    printf '==> %s\n' "$label"
+    "$@"
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --image)
+            if [ "$#" -lt 2 ]; then
+                usage >&2
+                exit 2
+            fi
+            image_target="$2"
+            shift 2
+            ;;
+        --image=*)
+            image_target="${1#--image=}"
+            shift
+            ;;
+        --deploy)
+            if [ "$#" -lt 2 ]; then
+                usage >&2
+                exit 2
+            fi
+            deploy_dir="$2"
+            shift 2
+            ;;
+        --deploy=*)
+            deploy_dir="${1#--deploy=}"
+            shift
+            ;;
+        --no-sdk)
+            make_sdk=0
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            while [ "$#" -gt 0 ]; do
+                raw_targets+=("$1")
+                shift
+            done
+            ;;
+        --*)
+            usage >&2
+            exit 2
+            ;;
+        *)
+            raw_targets+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$image_target" ] || [ -z "$deploy_dir" ]; then
+    usage >&2
+    exit 2
+fi
+
+if [ "${#raw_targets[@]}" -eq 0 ]; then
+    usage >&2
+    exit 2
+fi
+
+cd "$repo_root"
+
+for raw_target in "${raw_targets[@]}"; do
+    target="$(normalise_target "$raw_target")"
+    if [ "$target" != "$image_target" ]; then
+        append_unique_component_target "$target"
+    fi
+done
+
+if [ "${#component_targets[@]}" -gt 0 ]; then
+    run_step "BitBake components: ${component_targets[*]}" \
+        "$script_dir/yocto-bitbake" "${component_targets[@]}"
+fi
+
+run_step "BitBake image: $image_target" \
+    "$script_dir/yocto-bitbake" "$image_target"
+
+if [ "$deploy_dir" = "build-artifacts/k230-canmv" ]; then
+    run_step "Deploy export: $deploy_dir" \
+        "$script_dir/yocto-export-deploy"
+else
+    run_step "Deploy export: $deploy_dir" \
+        "$script_dir/yocto-export-deploy" "$deploy_dir"
+fi
+
+if [ "$make_sdk" -eq 1 ]; then
+    run_step "SDK SD image: $deploy_dir" \
+        "$script_dir/k230-sdk-image" --deploy "$deploy_dir"
+fi

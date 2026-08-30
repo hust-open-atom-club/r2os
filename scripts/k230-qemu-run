@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="initrd"
+use_uboot=0
+use_net=1
+snapshot="${K230_SNAPSHOT:-0}"
+deploy_dir="${K230_DEPLOY_DIR:-}"
+qemu_bin="${K230_QEMU:-$HOME/processmission-qemu/build/qemu-system-riscv64}"
+append_extra="${K230_APPEND:-}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+default_sdk_artifact_dir="$repo_root/prebuilt/k230-sdk/riscv-nomtee"
+if [ ! -f "$default_sdk_artifact_dir/u-boot" ]; then
+    default_sdk_artifact_dir="$HOME/k230-project/images/riscv-nomtee"
+fi
+sdk_artifact_dir="${K230_SDK_ARTIFACT_DIR:-$default_sdk_artifact_dir}"
+uboot_path="${K230_UBOOT:-}"
+sdk_sdimg="${K230_SDK_SDIMG:-}"
+# Direct paths emulate only the Linux small-core side.  SDK U-Boot starts both
+# K230 cores so the big core can run RTT while the small core runs Linux.
+direct_machine_args=(-machine k230-canmv -smp 1 -m 2G)
+uboot_machine_args=(-machine k230-canmv,boot-both-cores=on -smp 2 -m 2G)
+
+
+usage() {
+    cat <<EOF
+Usage: $0 [--initrd|--sd] [--uboot] [--deploy DIR] [--qemu PATH] [--sdk-artifacts DIR] [--no-net] [--snapshot|--discard-writes] [--append ARGS]
+
+Defaults:
+  --initrd      Direct one-small-core QEMU boot with Image + DTB + cpio.gz initramfs.
+  --sd          Direct one-small-core QEMU boot with Image + DTB + raw WIC SD image.
+  --uboot       SDK U-Boot SD boot with both cores: big RTT, small Linux.
+  --sdk-sd IMG  SDK-compatible SD image for --uboot.
+  --snapshot    Discard guest writes to SD images instead of modifying them.
+  --discard-writes
+                Alias for --snapshot.
+
+Environment:
+  K230_QEMU       QEMU binary, default: ~/processmission-qemu/build/qemu-system-riscv64
+  K230_DEPLOY_DIR Yocto deploy/images/k230-canmv directory
+  K230_UBOOT      K230 SDK U-Boot binary for --uboot
+  K230_SDK_SDIMG  SDK-compatible SD image for --uboot
+  K230_SNAPSHOT   Set to 1/yes/true/on to discard guest writes to SD images
+  K230_SDK_ARTIFACT_DIR
+                 SDK artifacts directory, default: prebuilt/k230-sdk/riscv-nomtee
+                 when present, otherwise ~/k230-project/images/riscv-nomtee
+  K230_APPEND     Extra kernel command-line text
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --initrd)
+            mode="initrd"
+            shift
+            ;;
+        --sd)
+            mode="sd"
+            shift
+            ;;
+        --uboot)
+            use_uboot=1
+            mode="sd"
+            shift
+            ;;
+        --deploy)
+            deploy_dir="$2"
+            shift 2
+            ;;
+        --qemu)
+            qemu_bin="$2"
+            shift 2
+            ;;
+        --sdk-artifacts)
+            sdk_artifact_dir="$2"
+            shift 2
+            ;;
+        --sdk-sd|--sdk-image)
+            sdk_sdimg="$2"
+            shift 2
+            ;;
+        --snapshot|--discard-writes)
+            snapshot=1
+            shift
+            ;;
+        --append)
+            append_extra="$2"
+            shift 2
+            ;;
+        --no-net)
+            use_net=0
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+case "$snapshot" in
+    1|yes|true|on)
+        snapshot=1
+        ;;
+    0|no|false|off|"")
+        snapshot=0
+        ;;
+    *)
+        printf 'Invalid K230_SNAPSHOT value: %s\n' "$snapshot" >&2
+        exit 2
+        ;;
+esac
+
+if [ ! -x "$qemu_bin" ]; then
+    printf 'QEMU binary not executable: %s\n' "$qemu_bin" >&2
+    exit 2
+fi
+
+if [ -z "$deploy_dir" ]; then
+    # shellcheck source=yocto-common.sh
+    source "$script_dir/yocto-common.sh"
+    build_mount="$("$DOCKER" volume inspect "$YOCTO_BUILD_VOLUME" --format "{{.Mountpoint}}" 2>/dev/null || true)"
+    if [ -n "$build_mount" ]; then
+        deploy_dir="$(find "$build_mount" -path "*/tmp/deploy/images/k230-canmv" -type d 2>/dev/null | sort | head -n 1)"
+    fi
+fi
+
+if [ -z "$deploy_dir" ] || [ ! -d "$deploy_dir" ]; then
+    cat >&2 <<EOF
+Cannot find deploy/images/k230-canmv.
+
+Build first:
+  ./scripts/yocto-k230-setup
+  ./scripts/yocto-bitbake k230-core-image
+
+Or pass:
+  $0 --deploy /path/to/tmp/deploy/images/k230-canmv
+EOF
+    exit 2
+fi
+
+first_existing() {
+    local path
+    for path in "$@"; do
+        if [ -e "$path" ]; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    done
+    return 1
+}
+
+file_size() {
+    stat -f %z "$1" 2>/dev/null || stat -c %s "$1"
+}
+
+pad_sd_image_for_qemu() {
+    local image="$1"
+    local target_size=$((2 * 1024 * 1024 * 1024))
+    local current_size
+
+    current_size="$(file_size "$image")"
+    if [ "$current_size" -lt "$target_size" ]; then
+        truncate -s "$target_size" "$image"
+    fi
+}
+
+sd_drive_arg() {
+    local image="$1"
+    local drive="if=sd,file=${image},format=raw"
+
+    if [ "$snapshot" -eq 1 ]; then
+        drive="${drive},snapshot=on"
+    fi
+
+    printf '%s\n' "$drive"
+}
+
+kernel="$(first_existing "$deploy_dir/Image" "$deploy_dir/Image-k230-canmv.bin" "$deploy_dir"/Image--*.bin 2>/dev/null || true)"
+dtb="$(first_existing "$deploy_dir/canaan/k230-canmv.dtb" "$deploy_dir/k230-canmv.dtb" "$deploy_dir"/k230-canmv*.dtb 2>/dev/null || true)"
+initrd="$(first_existing "$deploy_dir/k230-core-image-k230-canmv.rootfs.cpio.gz" "$deploy_dir"/*.rootfs.cpio.gz 2>/dev/null || true)"
+sdimg="$(first_existing "$deploy_dir/k230-core-image-k230-canmv.rootfs.wic" "$deploy_dir/k230-core-image-k230-canmv.rootfs.wic.gz" "$deploy_dir"/*.rootfs.wic "$deploy_dir"/*.rootfs.wic.gz 2>/dev/null || true)"
+sdk_sdimg_auto="$(first_existing "$deploy_dir/k230-core-image-k230-canmv.sdk-sdcard.img" "$deploy_dir"/*.sdk-sdcard.img 2>/dev/null || true)"
+
+qemu_exec() {
+    if [ "$use_net" -eq 1 ]; then
+        exec "$qemu_bin" "$@" -nic user,model=usb-rtl8152,hostfwd=tcp::10022-:22 -nographic
+    fi
+
+    exec "$qemu_bin" "$@" -nic none -nographic
+}
+
+if [ "$use_uboot" -eq 1 ]; then
+    if [ -z "$uboot_path" ] && [ -f "$sdk_artifact_dir/u-boot" ]; then
+        uboot_path="$sdk_artifact_dir/u-boot"
+    fi
+    if [ -z "$uboot_path" ] || [ ! -f "$uboot_path" ]; then
+        printf 'Set K230_UBOOT or pass --sdk-artifacts to a directory containing SDK u-boot.\n' >&2
+        exit 2
+    fi
+    if [ -z "$sdk_sdimg" ]; then
+        sdk_sdimg="$sdk_sdimg_auto"
+    fi
+    if [ -z "$sdk_sdimg" ]; then
+        cat >&2 <<EOF
+No SDK-compatible SD image found in $deploy_dir.
+
+Generate one first:
+  ./scripts/k230-sdk-image --deploy "$deploy_dir"
+EOF
+        exit 2
+    fi
+    sdimg="$sdk_sdimg"
+    if [[ "$sdimg" == *.gz ]]; then
+        raw_dir="$deploy_dir/qemu"
+        mkdir -p "$raw_dir"
+        raw_sd="$raw_dir/$(basename "${sdimg%.gz}")"
+        if [ ! -f "$raw_sd" ] || [ "$sdimg" -nt "$raw_sd" ]; then
+            gunzip -ck "$sdimg" > "$raw_sd"
+        fi
+        pad_sd_image_for_qemu "$raw_sd"
+        sdimg="$raw_sd"
+    fi
+    sd_drive="$(sd_drive_arg "$sdimg")"
+    qemu_exec "${uboot_machine_args[@]}" \
+        -bios "$uboot_path" -drive "$sd_drive"
+fi
+
+if [ -z "$kernel" ] || [ -z "$dtb" ]; then
+    printf 'Missing Image or k230-canmv.dtb in %s\n' "$deploy_dir" >&2
+    exit 2
+fi
+
+case "$mode" in
+    initrd)
+        if [ -z "$initrd" ]; then
+            printf 'No cpio.gz initramfs image found in %s\n' "$deploy_dir" >&2
+            exit 2
+        fi
+        append="console=ttyS0,115200 earlycon=sbi rdinit=/sbin/init ${append_extra}"
+        qemu_exec "${direct_machine_args[@]}" \
+            -kernel "$kernel" -dtb "$dtb" -initrd "$initrd" \
+            -append "$append"
+        ;;
+    sd)
+        if [ -z "$sdimg" ]; then
+            printf 'No WIC SD image found in %s\n' "$deploy_dir" >&2
+            exit 2
+        fi
+        if [[ "$sdimg" == *.gz ]]; then
+            raw_dir="$deploy_dir/qemu"
+            mkdir -p "$raw_dir"
+            raw_sd="$raw_dir/$(basename "${sdimg%.gz}")"
+            if [ ! -f "$raw_sd" ] || [ "$sdimg" -nt "$raw_sd" ]; then
+                gunzip -ck "$sdimg" > "$raw_sd"
+            fi
+            pad_sd_image_for_qemu "$raw_sd"
+            sdimg="$raw_sd"
+        fi
+        append="console=ttyS0,115200 earlycon=sbi root=/dev/mmcblk1p2 rootwait rw ${append_extra}"
+        sd_drive="$(sd_drive_arg "$sdimg")"
+        qemu_exec "${direct_machine_args[@]}" \
+            -kernel "$kernel" -dtb "$dtb" \
+            -drive "$sd_drive" \
+            -append "$append"
+        ;;
+esac

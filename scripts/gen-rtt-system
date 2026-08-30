@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""Generate rtt_system.bin from a big-core fw_payload.bin.
+
+Pipeline (replicates the K230 SDK gen_rtt_bin):
+  fw_payload.bin -> gzip (hdr byte 2 = 0x09) -> U-Boot mkimage header
+  -> K230 firmware header -> rtt_system.bin
+
+Usage:
+  ./scripts/gen-rtt-system [--load-addr ADDR] FW_PAYLOAD_BIN [OUTPUT]
+"""
+
+import argparse
+import gzip
+import hashlib
+import struct
+from pathlib import Path
+
+# U-Boot legacy image header constants (from include/image.h)
+IH_MAGIC = 0x27051956
+IH_OS_OPENSBI = 27
+IH_ARCH_RISCV = 26
+IH_TYPE_MULTI = 4
+IH_COMP_GZIP = 1
+IH_NMLEN = 32
+
+LOAD_ADDR = 0x00200000  # CONFIG_MEM_RTT_SYS_BASE
+
+
+def crc32(data: bytes) -> int:
+    """CRC32 matching U-Boot's crc32 (standard zip CRC32)."""
+    import binascii
+    return binascii.crc32(data) & 0xFFFFFFFF
+
+
+def gzip_compress(data: bytes) -> bytes:
+    """gzip with header byte 2 set to 0x09 (SDK convention)."""
+    buf = gzip.compress(data, compresslevel=9)
+    # byte 2 is the compression method field; 8 = deflate, 9 = custom marker
+    buf = bytearray(buf)
+    if buf[2] == 8:
+        buf[2] = 9
+    return bytes(buf)
+
+
+def make_uboot_header(data_size: int, data_crc: int, load_addr: int) -> bytes:
+    """Build a 64-byte U-Boot legacy image header (big-endian)."""
+    header = bytearray(64)
+
+    # Pack all fields except ih_hcrc (offset 4) and ih_dcrc (offset 24)
+    struct.pack_into(">I",  header, 0, IH_MAGIC)
+    # ih_hcrc at offset 4: zeroed for CRC computation
+    struct.pack_into(">I",  header, 8, 0)          # ih_time
+    struct.pack_into(">I",  header, 12, data_size)  # ih_size
+    struct.pack_into(">I",  header, 16, load_addr)  # ih_load
+    struct.pack_into(">I",  header, 20, load_addr)  # ih_ep
+    # ih_dcrc at offset 24: zeroed for CRC computation
+    header[28] = IH_OS_OPENSBI  # ih_os
+    header[29] = IH_ARCH_RISCV  # ih_arch
+    header[30] = IH_TYPE_MULTI  # ih_type
+    header[31] = IH_COMP_GZIP   # ih_comp
+    name = b"rtt"
+    header[32:32 + len(name)] = name  # ih_name (32 bytes, zero-padded)
+
+    # Compute header CRC
+    hcrc = crc32(bytes(header))
+    struct.pack_into(">I", header, 4, hcrc)
+
+    # Compute data CRC and place it
+    struct.pack_into(">I", header, 24, data_crc)
+
+    return bytes(header)
+
+
+def make_uboot_multi_payload(gzip_data: bytes) -> bytes:
+    """Wrap gzipped data in U-Boot multi-file format.
+
+    Multi-file format:
+      [uint32_t size1 (BE)] [uint32_t size2 (BE)] ... [uint32_t 0 (terminator)]
+      [data1 (4-byte aligned)] [data2 (4-byte aligned)] ...
+    """
+    size_be = struct.pack(">I", len(gzip_data))
+    terminator = b"\x00\x00\x00\x00"
+    data_section = size_be + terminator + gzip_data
+    return data_section
+
+
+def make_k230_header(payload: bytes) -> bytes:
+    """Build K230 firmware header (non-encrypted, 528 bytes).
+
+    Format (little-endian, matching firmware_gen.py):
+      magic:   "K230"    (4 bytes)
+      length:  uint32    (4 bytes, total payload length)
+      enc_type: uint32   (4 bytes, 0 = none)
+      hash:    SHA256    (32 bytes, of payload)
+      reserved: zeros    (484 bytes)
+    """
+    header = bytearray()
+    header += b"K230"  # magic
+    header += struct.pack("<I", len(payload))  # length
+    header += struct.pack("<I", 0)             # enc_type = none
+    header += hashlib.sha256(payload).digest() # hash (32 bytes)
+    header += bytes(528 - len(header))         # pad to 528
+    return bytes(header)
+
+
+def parse_int(value: str) -> int:
+    return int(value, 0)
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate rtt_system.bin from a big-core fw_payload.bin."
+    )
+    parser.add_argument(
+        "--load-addr",
+        default=LOAD_ADDR,
+        type=parse_int,
+        metavar="ADDR",
+        help=f"RTT firmware load address, default: 0x{LOAD_ADDR:08x}",
+    )
+    parser.add_argument("fw_payload", type=Path, metavar="FW_PAYLOAD_BIN")
+    parser.add_argument(
+        "output",
+        nargs="?",
+        type=Path,
+        default=Path("rtt_system.bin"),
+        metavar="OUTPUT",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None):
+    args = parse_args(argv)
+    load_addr = args.load_addr
+    fw_payload = args.fw_payload
+    output = args.output
+
+    fw_data = fw_payload.read_bytes()
+
+    # Step 1: gzip
+    gzip_data = gzip_compress(fw_data)
+
+    # Step 2: U-Boot multi-file payload
+    uboot_data = make_uboot_multi_payload(gzip_data)
+
+    # Step 3: U-Boot header
+    data_crc = crc32(uboot_data)
+    uboot_header = make_uboot_header(len(uboot_data), data_crc, load_addr)
+    uboot_image = uboot_header + uboot_data
+
+    # Step 4: K230 firmware header (wraps version + uboot_image)
+    version = b"\x00\x00\x00\x00"
+    payload = version + uboot_image
+    k230_header = make_k230_header(payload)
+
+    # Final: K230 header + version + uboot_image
+    rtt_system = k230_header + version + uboot_image
+
+    output.write_bytes(rtt_system)
+    print(f"{output}: {len(rtt_system)} bytes")
+
+
+if __name__ == "__main__":
+    main()

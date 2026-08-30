@@ -1,0 +1,442 @@
+#!/usr/bin/env python3
+"""Interactive QEMU smoke test for K230 images."""
+
+import argparse
+import errno
+import fcntl
+import os
+from pathlib import Path
+import pty
+import re
+import select
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+
+PROMPT_RE = re.compile(r"(?:^|\r|\n)(?:root@[^\r\n#]*# |/ # )")
+DONE_MARKER = "__K230_SMOKE_DONE__"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Boot K230 QEMU, enter the serial shell, and run a command."
+    )
+    parser.add_argument("--mode", choices=("initrd", "sd", "uboot"),
+                        default="initrd")
+    parser.add_argument("--deploy", default=os.environ.get(
+        "K230_DEPLOY_DIR", "build-artifacts/k230-canmv"))
+    parser.add_argument("--timeout", type=int, default=int(os.environ.get(
+        "K230_QEMU_SMOKE_TIMEOUT", "120")))
+    parser.add_argument("--command", default="fastfetch")
+    parser.add_argument("--dropbear-no-host-key", action="store_true",
+                        help="Rebuild a temporary SDK image from a rootfs without pre-generated Dropbear host keys before U-Boot smoke")
+    parser.add_argument("--log-file")
+    return parser.parse_args()
+
+
+def _find_deploy_file(deploy: Path, *patterns: str) -> Path | None:
+    for pattern in patterns:
+        for match in sorted(deploy.glob(pattern)):
+            if match.is_file() and match.stat().st_size == 0:
+                continue
+            return match
+    return None
+
+
+def _rootfs_archive_has_dropbear_keys(deploy: Path) -> bool:
+    archive = _find_deploy_file(
+        deploy,
+        "k230-core-image-k230-canmv.rootfs.tar.zst",
+        "*.rootfs.tar.zst",
+    )
+    if archive is None or not archive.is_file() or archive.stat().st_size == 0:
+        return False
+
+    if shutil.which("bsdtar") is None:
+        return False
+
+    proc = subprocess.run(
+        ["bsdtar", "-tf", str(archive)],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    return any(
+        "/etc/dropbear/dropbear_" in line and line.rstrip().endswith("_host_key")
+        for line in proc.stdout.splitlines()
+    )
+
+def _to_container_path(repo_root: Path, path: Path) -> str:
+    root = repo_root.resolve()
+    target = path.resolve()
+    try:
+        rel = target.relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"path must stay inside repository for yocto-shell access: {target}"
+        ) from exc
+
+    if not rel.parts:
+        return "/work/src"
+    return f"/work/src/{rel.as_posix()}"
+
+
+def _dropbear_host_key_names(repo_root: Path, rootfs: Path) -> list[str]:
+    rootfs_path = _to_container_path(repo_root, rootfs)
+    cmd = (
+        'set -euo pipefail\n'
+        'debugfs="$(find /work/build -path "*/tmp/work/*/e2fsprogs-native/*/recipe-sysroot-native/sbin/debugfs" -type f -perm -111 | sort | tail -n 1)"\n'
+        'if [ -z "$debugfs" ] || [ ! -x "$debugfs" ]; then\n'
+        '  printf "Yocto native debugfs not found.\\n" >&2\n'
+        '  exit 2\n'
+        'fi\n'
+        f'"$debugfs" -R "ls -l /etc/dropbear" {shlex.quote(rootfs_path)}\n'
+    )
+    proc = subprocess.run(
+        [str(repo_root / "scripts/yocto-shell"), "bash", "-lc", cmd],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    names = []
+    for line in proc.stdout.splitlines():
+        if "dropbear_" not in line or "_host_key" not in line:
+            continue
+        names.append(line.split("/")[-1].split()[-1])
+    return names
+
+
+def _patch_rootfs_for_no_host_key(repo_root: Path, rootfs: Path, init_script: Path) -> None:
+    rootfs_path = _to_container_path(repo_root, rootfs)
+    init_path = _to_container_path(repo_root, init_script)
+    commands_path = rootfs.parent / "dropbear-no-host-key.debugfs"
+    commands = [
+        "rm /etc/init.d/dropbear",
+        f"write {init_path} /etc/init.d/dropbear",
+        "set_inode_field /etc/init.d/dropbear mode 0100755",
+    ]
+    commands.extend(
+        f"rm /etc/dropbear/{name}"
+        for name in _dropbear_host_key_names(repo_root, rootfs)
+    )
+    commands_path.write_text("\n".join(commands) + "\n")
+
+    cmdfile_path = _to_container_path(repo_root, commands_path)
+    cmd = (
+        'set -euo pipefail\n'
+        'debugfs="$(find /work/build -path "*/tmp/work/*/e2fsprogs-native/*/recipe-sysroot-native/sbin/debugfs" -type f -perm -111 | sort | tail -n 1)"\n'
+        'if [ -z "$debugfs" ] || [ ! -x "$debugfs" ]; then\n'
+        '  printf "Yocto native debugfs not found.\\n" >&2\n'
+        '  exit 2\n'
+        'fi\n'
+        f'"$debugfs" -w -f {shlex.quote(cmdfile_path)} {shlex.quote(rootfs_path)} >/dev/null\n'
+    )
+    subprocess.run(
+        [str(repo_root / "scripts/yocto-shell"), "bash", "-lc", cmd],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def prepare_no_host_key_deploy(script_dir: Path, deploy: Path) -> Path:
+    if _rootfs_archive_has_dropbear_keys(deploy):
+        raise RuntimeError(
+            f"{deploy}: rootfs archive already contains Dropbear host keys; "
+            "task5 expects a no-host-key rootfs artifact"
+        )
+    temp_base = script_dir.parent / "build-artifacts"
+    temp_base.mkdir(exist_ok=True)
+    tmp_root = Path(tempfile.mkdtemp(prefix="k230-no-host-key-", dir=temp_base))
+    tmp_deploy = tmp_root / "deploy"
+    tmp_deploy.mkdir()
+
+    rootfs = _find_deploy_file(
+        deploy,
+        "k230-core-image-k230-canmv.rootfs.ext4",
+        "*.rootfs.ext4",
+    )
+    kernel = _find_deploy_file(
+        deploy,
+        "Image",
+        "Image-k230-canmv.bin",
+        "Image--*.bin",
+    )
+    dtb = _find_deploy_file(
+        deploy,
+        "k230-canmv.dtb",
+        "canaan/k230-canmv.dtb",
+        "k230-canmv*.dtb",
+    )
+    fw_payload = _find_deploy_file(
+        deploy,
+        "fw_payload-sdk-opensbi.bin",
+        "fw_payload.bin",
+    )
+
+    required = {
+        "rootfs.ext4": rootfs,
+        "Image": kernel,
+        "k230-canmv.dtb": dtb,
+        "fw_payload": fw_payload,
+    }
+    missing = [name for name, path in required.items() if path is None]
+    if missing:
+        raise RuntimeError(
+            f"{deploy}: missing artifacts for no-host-key U-Boot smoke: {', '.join(missing)}"
+        )
+
+    repo_root = script_dir.parent
+    rootfs_copy = tmp_deploy / "k230-core-image-k230-canmv.rootfs.ext4"
+    shutil.copy2(rootfs, rootfs_copy)
+    _patch_rootfs_for_no_host_key(
+        repo_root,
+        rootfs_copy,
+        repo_root / "recipes-core/dropbear/files/dropbear",
+    )
+    shutil.copy2(kernel, tmp_deploy / "Image")
+    shutil.copy2(dtb, tmp_deploy / "k230-canmv.dtb")
+    shutil.copy2(fw_payload, tmp_deploy / "fw_payload-sdk-opensbi.bin")
+
+    output = tmp_deploy / "k230-core-image-k230-canmv.sdk-sdcard.img"
+    subprocess.run(
+        [
+            str(script_dir / "k230-sdk-image"),
+            "--deploy", str(tmp_deploy),
+            "--output", str(output),
+            "--no-sdk-opensbi",
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return tmp_deploy
+
+
+def make_qemu_command(script_dir: Path, args) -> tuple[list[str], Path | None]:
+    deploy = Path(args.deploy)
+    cleanup_dir = None
+
+    if args.dropbear_no_host_key:
+        if args.mode != "uboot":
+            raise ValueError("--dropbear-no-host-key only supports --mode uboot")
+        deploy = prepare_no_host_key_deploy(script_dir, deploy)
+        cleanup_dir = deploy.parent
+
+    cmd = [str(script_dir / "k230-qemu-run"), "--deploy", str(deploy)]
+
+    if args.mode == "initrd":
+        cmd.append("--initrd")
+    elif args.mode == "sd":
+        cmd.extend(["--sd", "--snapshot"])
+    else:
+        cmd.extend(["--sd", "--uboot", "--snapshot"])
+
+    cmd.append("--no-net")
+    return cmd, cleanup_dir
+
+
+class SerialSession:
+    def __init__(self, cmd: list[str], log_file: Path):
+        self.cmd = cmd
+        self.log_file = log_file
+        self.master_fd = None
+        self.proc = None
+        self.text = ""
+
+    def start(self):
+        master_fd, slave_fd = pty.openpty()
+        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        self.master_fd = master_fd
+
+        try:
+            self.proc = subprocess.Popen(
+                self.cmd,
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                start_new_session=True,
+            )
+        finally:
+            os.close(slave_fd)
+
+    def drain(self, timeout: float):
+        assert self.master_fd is not None
+        ready, _, _ = select.select([self.master_fd], [], [], timeout)
+        if not ready:
+            return
+
+        chunks = []
+        while True:
+            try:
+                chunk = os.read(self.master_fd, 8192)
+            except BlockingIOError:
+                break
+            except OSError as exc:
+                if exc.errno in (errno.EBADF, errno.EIO):
+                    break
+                raise
+            if not chunk:
+                break
+            chunks.append(chunk)
+
+        if not chunks:
+            return
+
+        data = b"".join(chunks)
+        with self.log_file.open("ab") as out:
+            out.write(data)
+        self.text += data.decode("utf-8", errors="replace")
+
+    def send(self, data: str):
+        assert self.master_fd is not None
+        os.write(self.master_fd, data.encode())
+
+    def stop(self):
+        if self.proc is not None and self.proc.poll() is None:
+            try:
+                os.killpg(self.proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(self.proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.proc.wait(timeout=5)
+
+        if self.master_fd is not None:
+            try:
+                os.close(self.master_fd)
+            except OSError:
+                pass
+            self.master_fd = None
+
+
+def tail(path: Path, limit: int = 4096) -> str:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return "<unreadable>"
+    return data[-limit:].decode("utf-8", errors="replace")
+
+
+def fail(message: str, log_file: Path) -> int:
+    print(f"{message}. Log: {log_file}", file=sys.stderr)
+    print(tail(log_file), file=sys.stderr)
+    return 1
+
+
+def make_log_file(path: str | None, mode: str) -> Path:
+    if path:
+        return Path(path)
+
+    fd, name = tempfile.mkstemp(prefix=f"k230-qemu-{mode}-", suffix=".log")
+    os.close(fd)
+    return Path(name)
+
+
+def wait_for_shell(session: SerialSession, deadline: float) -> bool:
+    login_seen_at = None
+    root_sent = False
+
+    while time.time() < deadline:
+        session.drain(0.5)
+        if PROMPT_RE.search(session.text):
+            return True
+
+        if not root_sent and "login:" in session.text:
+            if login_seen_at is None:
+                login_seen_at = time.time()
+            elif time.time() - login_seen_at >= 5:
+                session.send("root\n")
+                root_sent = True
+
+        if session.proc is not None and session.proc.poll() is not None:
+            return False
+
+    return False
+
+
+def run_command(session: SerialSession, command: str, deadline: float) -> int | None:
+    session.send(f"{command}; echo {DONE_MARKER}$?\n")
+    pattern = re.compile(rf"{DONE_MARKER}(\d+)")
+
+    while time.time() < deadline:
+        session.drain(0.5)
+        match = pattern.search(session.text)
+        if match:
+            return int(match.group(1))
+
+        if session.proc is not None and session.proc.poll() is not None:
+            return None
+
+    return None
+
+
+def main() -> int:
+    args = parse_args()
+    if args.timeout <= 0:
+        print("--timeout must be greater than zero", file=sys.stderr)
+        return 2
+
+    script_dir = Path(__file__).resolve().parent
+    log_file = make_log_file(args.log_file, args.mode)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file.write_bytes(b"")
+
+    try:
+        cmd, cleanup_dir = make_qemu_command(script_dir, args)
+    except subprocess.CalledProcessError as exc:
+        if exc.stderr:
+            print(exc.stderr, file=sys.stderr, end="")
+        print(str(exc), file=sys.stderr)
+        return 2
+    except (RuntimeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    session = SerialSession(cmd, log_file)
+    deadline = time.time() + args.timeout
+
+    try:
+        session.start()
+        if not wait_for_shell(session, deadline):
+            return fail(
+                f"QEMU smoke timed out before shell after {args.timeout} seconds",
+                log_file,
+            )
+
+        rc = run_command(session, args.command, deadline)
+        if rc is None:
+            return fail(
+                f"QEMU smoke timed out running {args.command!r}",
+                log_file,
+            )
+        if rc != 0:
+            return fail(
+                f"QEMU smoke command {args.command!r} exited with {rc}",
+                log_file,
+            )
+
+        print(f"QEMU smoke ran {args.command!r} in {log_file}")
+        return 0
+    finally:
+        session.stop()
+        if cleanup_dir is not None:
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

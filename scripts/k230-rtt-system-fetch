@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+ssh_cmd="${K230_RTT_SSH_CMD:-}"
+sdk_remote_root="${K230_SDK_REMOTE_ROOT:-}"
+conf="${K230_RTT_CONF:-k230_canmv_defconfig}"
+output_dir="${1:-$repo_root/prebuilt/k230-sdk/riscv-nomtee}"
+
+usage() {
+    cat <<EOF
+Usage: $0 [OUTPUT_DIR]
+
+Build K230 big-core (RTT Smart) firmware on the remote SDK host and
+download rtt_system.bin.
+
+Environment:
+  K230_RTT_SSH_CMD        SSH command for remote host, for example:
+                          ssh user@example.com -p 2222
+  K230_SDK_REMOTE_ROOT    Path to K230 SDK on remote host (required)
+  K230_RTT_CONF           SDK defconfig (default: k230_canmv_defconfig)
+  K230_RTT_REMOTE_SRC     Optional remote rtt_system.bin path
+
+Default output: prebuilt/k230-sdk/riscv-nomtee/
+EOF
+}
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+    usage
+    exit 0
+fi
+
+if [ -z "$ssh_cmd" ] || [ -z "$sdk_remote_root" ]; then
+    usage >&2
+    cat >&2 <<EOF
+
+Set K230_RTT_SSH_CMD and K230_SDK_REMOTE_ROOT before running this script.
+EOF
+    exit 2
+fi
+
+mkdir -p "$output_dir"
+
+remote_bash() {
+    # K230_RTT_SSH_CMD is configured as a command string, for example:
+    #   ssh user@example.com -p 2222
+    # Feed the script on stdin so OpenSSH does not reparse a multiline
+    # `bash -lc` payload through the remote login shell.
+    $ssh_cmd bash -s -- "$@"
+}
+
+# Step 1: Build big-core firmware on remote host.
+#
+# uboot is built so mkimage is available for the packaging step.
+printf '=== Building big-core firmware on remote host (conf=%s) ===\n' "$conf"
+remote_bash "$sdk_remote_root" "$conf" <<'REMOTE'
+    set -euo pipefail
+    cd "$1"
+    make CONF="$2" rt-smart-kernel rt-smart-apps big-core-opensbi uboot
+REMOTE
+
+# Step 2: Generate rtt_system.bin on remote host.
+#
+# Replicates the SDK gen_rtt_bin() pipeline:
+#   gzip -> U-Boot mkimage header -> K230 firmware header
+printf '=== Generating rtt_system.bin on remote host ===\n'
+remote_bash "$sdk_remote_root" "$conf" <<'REMOTE'
+    set -euo pipefail
+    sdk_root="$1"; conf="$2"
+    build_dir="$sdk_root/output/$conf"
+    uboot_build_dir="$build_dir/little/uboot"
+    big_opensbi_build_dir="$build_dir/common/big-opensbi"
+    fw_payload="$big_opensbi_build_dir/platform/kendryte/fpgac908/firmware/fw_payload.bin"
+    mkimage="$uboot_build_dir/tools/mkimage"
+    firmware_gen="$sdk_root/tools/firmware_gen.py"
+    work_dir="$build_dir/images/big-core"
+    mkdir -p "$work_dir"
+    cd "$work_dir"
+
+    if [ ! -f "$fw_payload" ]; then
+        printf "fw_payload.bin not found: %s\n" "$fw_payload" >&2
+        exit 1
+    fi
+    if [ ! -x "$mkimage" ]; then
+        printf "mkimage not found: %s\n" "$mkimage" >&2
+        exit 1
+    fi
+
+    cp "$fw_payload" fw_payload.bin
+
+    # gzip with modified header (byte 2: 8 -> 9, SDK convention)
+    gzip -n -9 -c fw_payload.bin > fw_payload.bin.gz
+    printf "\x09" | dd of=fw_payload.bin.gz bs=1 seek=2 count=1 conv=notrunc 2>/dev/null
+
+    # U-Boot mkimage header
+    "$mkimage" -A riscv -O opensbi -T multi -C gzip \
+        -a 0x00200000 -e 0x00200000 -n rtt \
+        -d fw_payload.bin.gz ug_fw_payload.bin
+
+    # K230 firmware header
+    python3 "$firmware_gen" -i ug_fw_payload.bin -o fn_ug_fw_payload.bin -n
+
+    mv fn_ug_fw_payload.bin rtt_system.bin
+    printf "rtt_system.bin: %s (%d bytes)\n" "$(pwd)/rtt_system.bin" "$(wc -c < rtt_system.bin)"
+REMOTE
+
+# Step 3: Download rtt_system.bin through the same configured SSH command.
+printf '=== Downloading rtt_system.bin ===\n'
+remote_src="${K230_RTT_REMOTE_SRC:-$sdk_remote_root/output/$conf/images/big-core/rtt_system.bin}"
+tmp_output="$output_dir/rtt_system.bin.tmp.$$"
+trap 'rm -f "$tmp_output"' EXIT
+
+remote_bash "$remote_src" <<'REMOTE' > "$tmp_output"
+    set -euo pipefail
+    cat "$1"
+REMOTE
+mv "$tmp_output" "$output_dir/rtt_system.bin"
+trap - EXIT
+
+printf 'Done: %s/rtt_system.bin\n' "$output_dir"
