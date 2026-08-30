@@ -1,258 +1,99 @@
-<h1 align="center">R² OS</h1>
+# R² OS
 
-<div align="center">
+A small Yocto/OpenEmbedded Linux distribution for the Canaan CanMV-K230.
 
-<table align="center">
-<tr>
-<td align="left">
-<pre>
-        ██████╗  ██╗
-       ██╔══██╗  ╚═╗
-      ██████╔╝  ██╗
-     ██╔══██╗  ╚═╝
-    ██║  ██║
-   ╚═╝  ╚═╝
-</pre>
-</td>
-<td align="left">
-<pre>
-root@k230-canmv
---------------
-OS       : R² OS 1.0 (r2os)
-Host     : Canaan CanMV-K230
-Kernel   : Linux 6.18.28
-Shell    : BusyBox ash
-CPU      : T-HEAD C908
-Memory   : 2 GiB
-Packages : ipk / opkg
-Boot     : OpenSBI + Linux
-SD       : 2 GiB WIC / SDK image
-</pre>
-</td>
-</tr>
-</table>
+R² OS targets RISC-V Linux development with a lightweight BusyBox userspace,
+Dropbear SSH, `opkg`, common command-line tools, and an R² OS Fastfetch logo.
 
-**A compact, Rust-first Yocto/OpenEmbedded RISC-V Linux distribution.**
+## Quick Start
 
-</div>
-
-R² OS is a small Yocto/OpenEmbedded-built RISC-V Linux distribution for the
-Canaan CanMV-K230 board. This repository contains the K230 Yocto BSP layer,
-distro configuration, image recipes, kernel device tree and config fragments,
-SDK image packer, and QEMU helper scripts used to build and test R² OS.
-
-The current target is the `k230-canmv` machine under the K230-capable QEMU
-branch. The image is intentionally lightweight: BusyBox init, Dropbear SSH,
-`opkg` package management, common command-line tools, and an R² OS-branded
-`fastfetch` setup are included by default.
-
-**Rust and RISC-V are the defining features of this distribution.** New packages
-added to the image should prefer Rust implementations when a suitable, mature
-option exists, and all target software is expected to run on RISC-V.
-
-This is a Linux bring-up and development image. The current QEMU path models the
-small C908/Linux side and selected board peripherals; K230 KPU, AI2D, camera,
-and full multimedia pipelines still need real hardware and SDK-side integration
-for meaningful validation.
-
-## Repositories and Branches
-
-- R² OS: this repository
-- Upstream base: `git@github.com:zevorn/kunos.git`
-- QEMU: `https://github.com/processmission/qemu.git`, branch `devel`
-- Yocto/OpenEmbedded: tested with `poky-wrynose` from `bitbake-setup`
-- Linux kernel: `linux-6.18.28` from kernel.org
-
-The Yocto distro identifier is `r2os`, while the user-visible distribution name
-is `R² OS`. The layer metadata also declares `scarthgap` compatibility, but the
-validated local build uses Wrynose.
-
-## Rust-First Packaging Policy
-
-R² OS treats Rust as a first-class platform language:
-
-- Prefer Rust-written command-line tools and daemons over C/C++ equivalents when
-  the Rust implementation is mature and suitable for an embedded RISC-V image.
-- Keep the base image small; prefer Rust tools with a modest footprint and
-  optional subpackages for heavier components.
-- When adding a package through `.agents/skills/k230-add-package`, explicitly
-  check whether a Rust implementation exists before choosing a non-Rust one.
-- RISC-V is the primary target architecture; all new recipes should verify
-  `COMPATIBLE_HOST` for `riscv64.*-linux` where needed.
-
-## Supported RISC-V Hardware
-
-See [docs/riscv-hardware.md](docs/riscv-hardware.md) for the current and
-planned RISC-V hardware matrix.
-
-## Build QEMU
-
-The Makefile uses the K230-capable `devel` branch by default and builds only
-the RISC-V 64-bit system emulator needed by this project:
+From the repository root:
 
 ```bash
-make qemu-build
+make qemu
 ```
 
-The default source and binary paths are:
+This command builds the SDK-free Yocto image, prepares the K230-capable QEMU,
+and boots the image with an initramfs.
 
-```text
-~/processmission-qemu/
-~/processmission-qemu/build/qemu-system-riscv64
-```
-
-It must support:
+To boot the direct WIC/SD image instead:
 
 ```bash
-~/processmission-qemu/build/qemu-system-riscv64 -machine help | grep k230-canmv
+make k230-qemu-sd
 ```
 
-## Build Yocto Image
-
-The default Makefile build path initializes Yocto, selects the K230 layer,
-builds `k230-core-image`, and exports the deploy artifacts without generating
-the optional SDK image:
-
-```bash
-make k230-build
-```
-
-`YOCTO_BACKEND=auto` is the default. It uses the container workflow when a
-Docker engine is reachable and falls back to the local Poky checkout when
-Docker is unavailable. The host defaults are `~/yocto/poky` and
-`build-artifacts/host-k230`; override them when needed:
-
-```bash
-make k230-qemu YOCTO_BACKEND=host \
-  YOCTO_POKY=/path/to/poky \
-  YOCTO_BUILD_DIR=build-artifacts/host-k230
-```
-
-Use `YOCTO_BACKEND=container` to require Docker explicitly.
-
-The exported artifacts are written to:
+The image is also available at:
 
 ```text
 build-artifacts/k230-canmv/
 ```
 
-The direct WIC image and SDK-compatible SD image are both sized for a 2GiB card.
-
-To rebuild changed components and refresh all boot artifacts in one command:
+## Common Commands
 
 ```bash
-./scripts/yocto-build-targets fastfetch linux-k230
+make env              # Check and bootstrap the local build environment
+make env-install      # Install missing host tools when needed
+make k230-build       # Build the Yocto image and export artifacts
+make qemu-build       # Build processmission/qemu, branch devel
+make k230-qemu        # Build and boot with initramfs
+make k230-qemu-sd     # Build and boot the direct WIC image
+make k230-sdk-image   # Build the optional SDK-compatible SD image
+make check             # Run static checks and unit tests
 ```
 
-Run the complete SDK-free initramfs path with one command:
+`make qemu` is an alias for `make k230-qemu`. Use `QEMU_MODE=sd` to select the
+SD path directly.
+
+## Build Environment
+
+The Makefile uses `YOCTO_BACKEND=auto` by default:
+
+- A reachable Docker engine uses the container workflow.
+- Without Docker, a local Poky checkout is used when available.
+
+The host fallback expects Poky at `~/yocto/poky` and uses
+`build-artifacts/host-k230` as its build directory. Override these paths when
+needed:
 
 ```bash
-make k230-qemu
+make qemu YOCTO_BACKEND=host \
+    YOCTO_POKY=/path/to/poky \
+    YOCTO_BUILD_DIR=build-artifacts/host-k230
 ```
 
-Use `make qemu` as a shorter alias. To boot the direct WIC/SD image instead,
-run `make k230-qemu-sd` or use `make k230-qemu QEMU_MODE=sd`.
+Use `YOCTO_BACKEND=container` to require Docker explicitly.
+When host repositories are missing, `make env` downloads the configured Poky
+and `meta-riscv` branches and initializes the host build directory. The
+`env-install` target is the explicit opt-in for system package installation.
 
-The image includes BusyBox plus common shell, file, process, network, storage,
-debugging, and package-management tools, including `bash`, GNU core tools,
-`find`, `grep`, `sed`, `awk`, `tar`, `xz`, `iproute2`, `net-tools`, Dropbear,
-`curl`, `wget`, Vim, `rsync`, `socat`, `lsof`, `sudo`, `parted`, `opkg`,
-`file`, `which`, `ethtool`, `strace`, `usbutils`, `pciutils`, `e2fsprogs`, and
-`dosfstools`.
+## QEMU and SDK Scope
 
-## SDK U-Boot Boot Image
+QEMU is built from [processmission/qemu](https://github.com/processmission/qemu),
+branch `devel`, using the `k230-canmv` machine. Direct initramfs and WIC/SD
+boots use the Linux small-core path and do not require the K230 SDK.
 
-SDK U-Boot does not boot a normal Yocto WIC layout through its default
-`bootcmd`. It runs `k230_boot`, which expects a GPT SD image with a K230-headed
-`linux_system.bin` in the `linux` partition at 30MiB.
-The SDK-compatible image keeps the SDK-required raw RTT and Linux partitions,
-then expands the ext4 rootfs partition from 128MiB to the end of the SD image.
-
-This repository includes the SDK U-Boot binary used for QEMU:
-
-```text
-prebuilt/k230-sdk/riscv-nomtee/u-boot
-```
-
-Generate the SDK-compatible SD image after building Yocto:
+The optional SDK U-Boot path starts both cores and requires the checked-in SDK
+U-Boot/RTT artifacts plus an SDK-compatible SD image:
 
 ```bash
-./scripts/k230-sdk-image --deploy build-artifacts/k230-canmv
-```
-
-When available, the packer builds the K230-tuned SDK OpenSBI payload from:
-
-```text
-~/k230-project/sdk/k230_sdk/src/common/opensbi
-```
-
-The generated image is:
-
-```text
-build-artifacts/k230-canmv/k230-core-image-k230-canmv.sdk-sdcard.img
-```
-
-## Run
-
-The Makefile targets above are the recommended build-and-run entry points.
-The underlying scripts remain available when a lower-level operation is
-needed.
-
-SDK U-Boot path:
-
-```bash
+make k230-sdk-image
 ./scripts/k230-qemu-run --deploy build-artifacts/k230-canmv --sd --uboot
 ```
 
-The SDK U-Boot path is the only mode that starts both cores (`-smp 2` with
-`boot-both-cores=on`): the big C908V core runs RTT and the small C908 core runs
-Linux.  Direct SD and initramfs modes stay single-core (`-smp 1`).
+The current QEMU focus is Linux bring-up. KPU, camera, AI2D, and full
+multimedia validation still require hardware or SDK-side integration.
 
-Direct SD/WIC path:
+## Project Layout
 
-```bash
-./scripts/k230-qemu-run --deploy build-artifacts/k230-canmv --sd
+```text
+conf/                 Yocto layer, machine, distro, and templates
+recipes-*/            BSP, image, kernel, and userspace recipes
+scripts/              Build, export, image, and QEMU helpers
+tests/                Metadata, image, and boot tests
+wic/                  Direct SD/WIC layout
+build-artifacts/      Local build output; not committed
 ```
 
-Direct initramfs path:
+## License
 
-```bash
-./scripts/k230-qemu-run --deploy build-artifacts/k230-canmv --initrd
-```
-
-SSH:
-
-```bash
-ssh -p 10022 root@127.0.0.1
-```
-
-The development image permits root login with an empty password.
-
-## Verified Boot Results
-
-The current build was verified with:
-
-- SDK U-Boot -> SDK OpenSBI v0.9 -> Yocto Linux 6.18.28
-- direct QEMU/OpenSBI SD boot
-- direct QEMU/OpenSBI initramfs boot
-- `eth0` via QEMU user networking and `usb-rtl8152`
-- SSH forwarding on host port `10022`
-- SDK rootfs mounted from `/dev/mmcblk1p3`
-- direct WIC rootfs mounted from `/dev/mmcblk1p2`, with `/boot` on `/dev/mmcblk1p1`
-
-## Agent Skills
-
-Repository-local agent skills live under `.agents/skills/`. They cover the
-K230 Yocto build, QEMU dependency build, QEMU boot modes, smoke tests, Docker
-workflow, and configuration explanation.
-
-## Notes
-
-- Build outputs under `build-artifacts/` are ignored and should not be
-  committed.
-- The bundled U-Boot binary is not covered by `COPYING.MIT`; see
-  `prebuilt/k230-sdk/riscv-nomtee/README.md`.
-- If BitBake reports `linux-k230:do_unpack is tainted from a forced run`, it
-  means the task was manually forced previously. It is not a boot failure. Use
-  `./scripts/yocto-bitbake -c clean linux-k230` followed by a rebuild if a clean
-  log is required.
+R² OS is released under the MIT License. See [COPYING.MIT](COPYING.MIT).
