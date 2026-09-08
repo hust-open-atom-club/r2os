@@ -46,7 +46,7 @@
 │  │ QEMU: -machine k230-canmv      │      │  usrmerge                  │      │    sstate-cache：任务结果缓存，可跨 build 复用
 │  │  -smp 1  -m 2G  -nographic     │      └────────────────────────────┘      │    downloads：源码包和 git mirror 缓存
 │  │  -nic user,model=usb-rtl8152   │                                          │
-│  │  hostfwd=tcp::10022-:22        │                                          │
+│  │  SSH bind: 127.0.0.1:10022     │                                          │
 │  │  -drive if=sd,format=raw       │                                          │
 │  └────────────────────────────────┘                                          │
 └──────────────────────────────────────────────────────────────────────────────┘

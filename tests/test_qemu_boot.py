@@ -155,8 +155,8 @@ class MachineConfigTest(unittest.TestCase):
                          "QB_SERIAL_OPT should be -nographic")
 
     def test_qb_network_with_ssh_forward(self):
-        _assert_contains(self.text, "hostfwd=tcp::10022-:22",
-                         "QB_NETWORK_DEVICE should forward port 10022 to SSH")
+        _assert_contains(self.text, "hostfwd=tcp:127.0.0.1:10022-:22",
+                         "QB_NETWORK_DEVICE should expose SSH on localhost only")
 
     def test_qb_kernel_cmdline_for_sd(self):
         _assert_contains(self.text, "root=/dev/mmcblk1p2",
@@ -568,7 +568,7 @@ class QemuRunScriptTest(unittest.TestCase):
         _assert_contains(self.text, "-smp 2",
                          "uboot mode uses -smp 2")
 
-    def _fake_qemu_args(self, *mode_args: str) -> list[str]:
+    def _fake_qemu_args(self, *mode_args: str, no_net: bool = True) -> list[str]:
         """Run k230-qemu-run against fake artifacts and return QEMU argv."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -593,15 +593,18 @@ class QemuRunScriptTest(unittest.TestCase):
             qemu.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\"\n")
             qemu.chmod(0o755)
 
+            command = [
+                str(SCRIPT),
+                *mode_args,
+                "--deploy", str(deploy),
+                "--qemu", str(qemu),
+                "--sdk-artifacts", str(sdk_artifacts),
+            ]
+            if no_net:
+                command.append("--no-net")
+
             result = subprocess.run(
-                [
-                    str(SCRIPT),
-                    *mode_args,
-                    "--deploy", str(deploy),
-                    "--qemu", str(qemu),
-                    "--sdk-artifacts", str(sdk_artifacts),
-                    "--no-net",
-                ],
+                command,
                 check=True,
                 text=True,
                 stdout=subprocess.PIPE,
@@ -630,6 +633,14 @@ class QemuRunScriptTest(unittest.TestCase):
         self._assert_arg_value(args, "-machine", "k230-canmv,boot-both-cores=on")
         self._assert_arg_value(args, "-smp", "2")
         self.assertIn("-bios", args)
+
+    def test_network_forwards_ssh_on_localhost_only(self):
+        args = self._fake_qemu_args("--initrd", no_net=False)
+        self._assert_arg_value(
+            args,
+            "-nic",
+            "user,model=usb-rtl8152,hostfwd=tcp:127.0.0.1:10022-:22",
+        )
 
     def test_snapshot_flag_accepted(self):
         _assert_contains(self.text, "--snapshot",

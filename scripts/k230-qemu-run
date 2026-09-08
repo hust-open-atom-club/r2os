@@ -189,7 +189,7 @@ sdk_sdimg_auto="$(first_existing "$deploy_dir/k230-core-image-k230-canmv.sdk-sdc
 
 qemu_exec() {
     if [ "$use_net" -eq 1 ]; then
-        exec "$qemu_bin" "$@" -nic user,model=usb-rtl8152,hostfwd=tcp::10022-:22 -nographic
+        exec "$qemu_bin" "$@" -nic user,model=usb-rtl8152,hostfwd=tcp:127.0.0.1:10022-:22 -nographic
     fi
 
     exec "$qemu_bin" "$@" -nic none -nographic
