@@ -379,7 +379,7 @@ class DropbearOverrideTest(unittest.TestCase):
         _assert_contains(self.bbappend_text, 'file://dropbear',
                          "dropbear bbappend adds override script")
         _assert_contains(self.bbappend_text,
-                         'install -m 0755 ${WORKDIR}/dropbear ${D}${sysconfdir}/init.d/dropbear',
+                         'install -m 0755 ${UNPACKDIR}/dropbear ${D}${sysconfdir}/init.d/dropbear',
                          "dropbear bbappend installs override")
 
     def test_preserves_default_key_path(self):
