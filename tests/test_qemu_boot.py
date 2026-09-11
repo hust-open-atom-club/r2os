@@ -20,8 +20,8 @@ SCRIPT = REPO_ROOT / "scripts" / "k230-qemu-run"
 SMOKE_SCRIPT = REPO_ROOT / "scripts" / "k230-qemu-smoke"
 CHECK_SCRIPT = REPO_ROOT / "scripts" / "k230-check"
 SDK_IMAGE_SCRIPT = REPO_ROOT / "scripts" / "k230-sdk-image"
-MACHINE_CONF = REPO_ROOT / "conf" / "machine" / "k230-canmv.conf"
-WKS_FILE = REPO_ROOT / "wic" / "k230-canmv-sdimage.wks"
+MACHINE_CONF = REPO_ROOT / "meta-k230-bsp" / "conf" / "machine" / "k230-canmv.conf"
+WKS_FILE = REPO_ROOT / "meta-k230-bsp" / "wic" / "k230-canmv-sdimage.wks"
 UBOOT_BINARY = REPO_ROOT / "prebuilt" / "k230-sdk" / "riscv-nomtee" / "u-boot"
 
 DEPLOY_DIR = os.environ.get("K230_DEPLOY_DIR", str(REPO_ROOT / "build-artifacts" / "k230-canmv"))

@@ -11,11 +11,11 @@ hardware we currently support and the boards we plan to evaluate or enable.
 
 The active BSP targets the `k230-canmv` machine. It includes:
 
-- Linux kernel recipe: `linux-k230_6.18.28`
-- Device tree: `recipes-kernel/linux/files/k230-canmv.dts`
-- Kernel config fragment: `recipes-kernel/linux/files/k230-canmv.cfg`
+- Linux kernel recipe: `meta-k230-bsp/recipes-kernel/linux/linux-k230_6.18.bb`
+- Device tree: `meta-k230-bsp/recipes-kernel/linux/files/k230-canmv.dts`
+- Kernel config fragment: `meta-k230-bsp/recipes-kernel/linux/files/k230-canmv.cfg`
 - QEMU machine: `k230-canmv` from `processmission/qemu` branch `devel`
-- WIC/SDK SD image layouts under `wic/` and `scripts/k230-sdk-image`
+- WIC/SDK SD image layouts under `meta-k230-bsp/wic/` and `scripts/k230-sdk-image`
 
 ## Planned / Evaluation Candidates
 
@@ -38,10 +38,11 @@ this layer.
 
 ## How to Add a Board
 
-1. Add a machine configuration under `conf/machine/`, reusing the RISC-V tune
-   from OE-core.
-2. Add or extend a kernel recipe with the board device tree and config fragment.
-3. Add a WIC layout under `wic/` if the board boots from SD/eMMC.
+1. Add a machine configuration under `meta-k230-bsp/conf/machine/`, reusing the
+   RISC-V tune from OE-core.
+2. Add or extend a kernel recipe with the board device tree and config fragment
+   in `meta-k230-bsp/recipes-kernel/`.
+3. Add a WIC layout under `meta-k230-bsp/wic/` if the board boots from SD/eMMC.
 4. Add a QEMU smoke path in `scripts/` when a QEMU machine is available.
 5. Update this matrix and the README.
 

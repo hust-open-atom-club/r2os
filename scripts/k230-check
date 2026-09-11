@@ -135,7 +135,7 @@ if ! command -v dtc >/dev/null 2>&1; then
     printf 'dtc not found; install device-tree-compiler to run DTS checks.\n' >&2
     exit 2
 fi
-run_step "DTS syntax" dtc -I dts -O dtb -o /tmp/k230-canmv.dtb recipes-kernel/linux/files/k230-canmv.dts
+run_step "DTS syntax" dtc -I dts -O dtb -o /tmp/k230-canmv.dtb meta-k230-bsp/recipes-kernel/linux/files/k230-canmv.dts
 
 if [ "$run_bitbake" -eq 1 ]; then
     run_step "BitBake image" "$script_dir/yocto-bitbake" k230-core-image

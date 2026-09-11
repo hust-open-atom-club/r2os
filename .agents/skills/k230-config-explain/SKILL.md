@@ -12,15 +12,15 @@ Explain configuration in boot order.
 
 | Path | Role |
 |------|------|
-| `conf/machine/k230-canmv.conf` | machine, kernel image, DTB, WIC, QEMU defaults |
+| `meta-k230-bsp/conf/machine/k230-canmv.conf` | machine, kernel image, DTB, WIC, QEMU defaults |
 | `conf/distro/r2os.conf` | distro identity, package class, root login policy |
 | `recipes-core/images/k230-core-image.bb` | rootfs image contents |
 | `recipes-core/packagegroups/packagegroup-k230-common.bb` | common command-line tools |
-| `recipes-kernel/linux/linux-k230_6.18.bb` | kernel source, config merge, DTB install |
-| `recipes-kernel/linux/files/k230-canmv.dts` | K230 board device tree |
-| `recipes-kernel/linux/files/k230-canmv.cfg` | kernel config fragment |
-| `recipes-bsp/opensbi/opensbi_%.bbappend` | OpenSBI payload and K230 fixes |
-| `wic/k230-canmv-sdimage.wks` | direct WIC SD layout |
+| `meta-k230-bsp/recipes-kernel/linux/linux-k230_6.18.bb` | kernel source, config merge, DTB install |
+| `meta-k230-bsp/recipes-kernel/linux/files/k230-canmv.dts` | K230 board device tree |
+| `meta-k230-bsp/recipes-kernel/linux/files/k230-canmv.cfg` | kernel config fragment |
+| `meta-k230-bsp/recipes-bsp/opensbi/opensbi_%.bbappend` | OpenSBI payload and K230 fixes |
+| `meta-k230-bsp/wic/k230-canmv-sdimage.wks` | direct WIC SD layout |
 | `scripts/k230-sdk-image` | SDK-compatible GPT SD layout |
 
 ## Order

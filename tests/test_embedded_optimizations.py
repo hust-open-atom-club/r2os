@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CFG = REPO_ROOT / "recipes-kernel/linux/files/k230-canmv.cfg"
+CFG = REPO_ROOT / "meta-k230-bsp/recipes-kernel/linux/files/k230-canmv.cfg"
 FSTAB = REPO_ROOT / "recipes-core/base-files/files/fstab"
 PROFILE = REPO_ROOT / "recipes-core/base-files/files/profile"
 ISSUE = REPO_ROOT / "recipes-core/base-files/files/issue"
