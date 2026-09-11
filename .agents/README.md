@@ -8,7 +8,7 @@ and RISC-V hardware are documented in `AGENTS.md` and
 Available skills:
 
 - `k230-yocto-build`: create the Yocto container, initialize BitBake, build
-  `k230-core-image`, export deploy artifacts, and generate the SDK SD image.
+  `r2os-image`, export deploy artifacts, and generate the SDK SD image.
 - `k230-qemu-build`: build the K230 QEMU dependency from the validated branch.
 - `k230-qemu-run`: boot the image with direct QEMU, direct SD/WIC, or SDK
   U-Boot.

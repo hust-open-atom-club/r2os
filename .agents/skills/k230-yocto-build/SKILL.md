@@ -15,7 +15,7 @@ One path, from source to bootable artifacts.
 | Build container | `./scripts/yocto-build-image` |
 | Initialize Yocto | `./scripts/yocto-init` |
 | Select K230 layer | `./scripts/yocto-k230-setup` |
-| Build image | `./scripts/yocto-bitbake k230-core-image` |
+| Build image | `./scripts/yocto-bitbake r2os-image` |
 | Export deploy dir | `./scripts/yocto-export-deploy` |
 | Make SDK SD image | `./scripts/k230-sdk-image --deploy build-artifacts/k230-canmv` |
 
@@ -34,6 +34,6 @@ Use `make env` to check or bootstrap the selected environment before building.
 ## Notes
 
 - Validated Yocto setup: `poky-wrynose` through `bitbake-setup`.
-- Image target: `k230-core-image`.
+- Image target: `r2os-image`.
 - A previous forced BitBake task may print `linux-k230:do_unpack is tainted`.
   Treat it as non-fatal unless a release-clean log is required.

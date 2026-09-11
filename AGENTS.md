@@ -45,7 +45,7 @@ Load the matching skill before starting common work:
 ./scripts/yocto-build-image
 ./scripts/yocto-init
 ./scripts/yocto-k230-setup
-./scripts/yocto-bitbake k230-core-image
+./scripts/yocto-bitbake r2os-image
 ./scripts/yocto-export-deploy
 ./scripts/k230-sdk-image --deploy build-artifacts/k230-canmv
 ./scripts/k230-qemu-run --deploy build-artifacts/k230-canmv --sd --uboot

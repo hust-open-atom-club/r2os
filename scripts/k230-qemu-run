@@ -136,7 +136,7 @@ Cannot find deploy/images/k230-canmv.
 
 Build first:
   ./scripts/yocto-k230-setup
-  ./scripts/yocto-bitbake k230-core-image
+  ./scripts/yocto-bitbake r2os-image
 
 Or pass:
   $0 --deploy /path/to/tmp/deploy/images/k230-canmv
@@ -183,9 +183,9 @@ sd_drive_arg() {
 
 kernel="$(first_existing "$deploy_dir/Image" "$deploy_dir/Image-k230-canmv.bin" "$deploy_dir"/Image--*.bin 2>/dev/null || true)"
 dtb="$(first_existing "$deploy_dir/canaan/k230-canmv.dtb" "$deploy_dir/k230-canmv.dtb" "$deploy_dir"/k230-canmv*.dtb 2>/dev/null || true)"
-initrd="$(first_existing "$deploy_dir/k230-core-image-k230-canmv.rootfs.cpio.gz" "$deploy_dir"/*.rootfs.cpio.gz 2>/dev/null || true)"
-sdimg="$(first_existing "$deploy_dir/k230-core-image-k230-canmv.rootfs.wic" "$deploy_dir/k230-core-image-k230-canmv.rootfs.wic.gz" "$deploy_dir"/*.rootfs.wic "$deploy_dir"/*.rootfs.wic.gz 2>/dev/null || true)"
-sdk_sdimg_auto="$(first_existing "$deploy_dir/k230-core-image-k230-canmv.sdk-sdcard.img" "$deploy_dir"/*.sdk-sdcard.img 2>/dev/null || true)"
+initrd="$(first_existing "$deploy_dir/r2os-image-k230-canmv.rootfs.cpio.gz" "$deploy_dir"/*.rootfs.cpio.gz 2>/dev/null || true)"
+sdimg="$(first_existing "$deploy_dir/r2os-image-k230-canmv.rootfs.wic" "$deploy_dir/r2os-image-k230-canmv.rootfs.wic.gz" "$deploy_dir"/*.rootfs.wic "$deploy_dir"/*.rootfs.wic.gz 2>/dev/null || true)"
+sdk_sdimg_auto="$(first_existing "$deploy_dir/r2os-image-k230-canmv.sdk-sdcard.img" "$deploy_dir"/*.sdk-sdcard.img 2>/dev/null || true)"
 
 qemu_exec() {
     if [ "$use_net" -eq 1 ]; then

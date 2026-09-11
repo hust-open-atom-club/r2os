@@ -577,9 +577,9 @@ class QemuRunScriptTest(unittest.TestCase):
             for name in (
                 "Image",
                 "k230-canmv.dtb",
-                "k230-core-image-k230-canmv.rootfs.cpio.gz",
-                "k230-core-image-k230-canmv.rootfs.wic",
-                "k230-core-image-k230-canmv.sdk-sdcard.img",
+                "r2os-image-k230-canmv.rootfs.cpio.gz",
+                "r2os-image-k230-canmv.rootfs.wic",
+                "r2os-image-k230-canmv.sdk-sdcard.img",
             ):
                 (deploy / name).write_bytes(b"x")
 

@@ -77,7 +77,7 @@ if [ -z "$deploy" ] || [ ! -d "$deploy" ]; then
 Cannot find tmp/deploy/images/k230-canmv.
 
 Build first:
-  ./scripts/yocto-bitbake k230-core-image
+  ./scripts/yocto-bitbake r2os-image
 EOF
     exit 2
 fi

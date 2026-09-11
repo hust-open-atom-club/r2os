@@ -46,7 +46,7 @@
 │  │ Output: Image  +  canaan/k230-canmv.dtb                               │   │    do_deploy：把内核、设备树等产物复制到 deploy 目录
 │  └───────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
-│  meta-r2os-distro/recipes-core/images/k230-core-image.bb                     │    recipes-core/images：镜像 recipe 的常见目录
+│  meta-r2os-distro/recipes-core/images/r2os-image.bb                     │    recipes-core/images：镜像 recipe 的常见目录
 │  ┌───────────────────────────────────────────────────────────────────────┐   │    image recipe：定义最终 rootfs 要安装什么
 │  │ Inherits: core-image                                                  │   │    inherit：复用 .bbclass 中定义的通用构建逻辑
 │  │ RootFS:   256MB + 64MB extra                                          │   │    IMAGE_ROOTFS_*：控制根文件系统大小和额外空间
@@ -205,7 +205,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                           Build Artifacts                                    │
 │                                                                              │
-│  $ MACHINE=k230-canmv DISTRO=r2os bitbake k230-core-image              │    bitbake：执行 recipe/task 的命令入口
+│  $ MACHINE=k230-canmv DISTRO=r2os bitbake r2os-image              │    bitbake：执行 recipe/task 的命令入口
 │                                                                              │
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────┐  │    tmp/deploy/images/${MACHINE}：镜像和启动文件输出目录
 │  │ tmp/deploy/    │  │ tmp/deploy/    │  │ tmp/deploy/    │  │ tmp/deploy │  │

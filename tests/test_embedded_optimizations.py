@@ -17,7 +17,7 @@ ISSUE = DISTRO_LAYER / "recipes-core/base-files/files/issue"
 MOTD = DISTRO_LAYER / "recipes-core/base-files/files/motd"
 K230_NETWORK = DISTRO_LAYER / "recipes-core/base-files/files/k230-network"
 BBAPPEND = DISTRO_LAYER / "recipes-core/base-files/base-files_%.bbappend"
-IMAGE_BB = DISTRO_LAYER / "recipes-core/images/k230-core-image.bb"
+IMAGE_BB = DISTRO_LAYER / "recipes-core/images/r2os-image.bb"
 DISTRO_CONF = DISTRO_LAYER / "conf/distro/r2os.conf"
 PACKAGEGROUP_BB = DISTRO_LAYER / "recipes-core/packagegroups/packagegroup-k230-common.bb"
 DROPBEAR_BBAPPEND = DISTRO_LAYER / "recipes-core/dropbear/dropbear_%.bbappend"
@@ -254,7 +254,7 @@ class BaseFilesBbappendTest(unittest.TestCase):
 
 
 class ImageRecipeTest(unittest.TestCase):
-    """Verify k230-core-image.bb has the required postprocess functions."""
+    """Verify r2os-image.bb has the required postprocess functions."""
 
     @classmethod
     def setUpClass(cls):

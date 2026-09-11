@@ -23,7 +23,7 @@ Run fast static checks by default:
   K230 DTS compilation
 
 Optional checks:
-  --bitbake        Build k230-core-image with scripts/yocto-bitbake.
+  --bitbake        Build r2os-image with scripts/yocto-bitbake.
   --export-deploy  Export deploy artifacts with scripts/yocto-export-deploy.
   --qemu-smoke     Boot QEMU, enter the shell, and run fastfetch.
   --qemu-smoke-all Boot all three QEMU paths in sequence: initrd, sd, uboot.
@@ -154,7 +154,7 @@ fi
 run_step "DTS syntax" dtc -I dts -O dtb -o /tmp/k230-canmv.dtb meta-k230-bsp/recipes-kernel/linux/files/k230-canmv.dts
 
 if [ "$run_bitbake" -eq 1 ]; then
-    run_step "BitBake image" "$script_dir/yocto-bitbake" k230-core-image
+    run_step "BitBake image" "$script_dir/yocto-bitbake" r2os-image
 fi
 
 if [ "$run_export" -eq 1 ]; then

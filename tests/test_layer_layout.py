@@ -196,7 +196,7 @@ class LayerOwnershipTest(unittest.TestCase):
     def test_distro_layer_owns_policy_and_image(self):
         distro = REPO_ROOT / "meta-r2os-distro"
         self.assertTrue((distro / "conf/distro/r2os.conf").is_file())
-        self.assertTrue((distro / "recipes-core/images/k230-core-image.bb").is_file())
+        self.assertTrue((distro / "recipes-core/images/r2os-image.bb").is_file())
         self.assertTrue(
             (distro / "recipes-core/packagegroups/packagegroup-k230-common.bb").is_file()
         )

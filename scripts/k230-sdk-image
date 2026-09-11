@@ -27,7 +27,7 @@ The output image uses the SDK layout expected by k230_boot:
 
 Defaults:
   --deploy        build-artifacts/k230-canmv
-  --output        <deploy>/k230-core-image-k230-canmv.sdk-sdcard.img
+  --output        <deploy>/r2os-image-k230-canmv.sdk-sdcard.img
   --load-addr     0x08000000
   --sdk-root      ~/k230-project/sdk/k230_sdk
   --rtt-system    auto-detected from prebuilt/ or \$K230_RTT_SYSTEM
@@ -93,7 +93,7 @@ fi
 deploy_dir="$(cd "$deploy_dir" && pwd)"
 
 if [ -z "$output" ]; then
-    output="$deploy_dir/k230-core-image-k230-canmv.sdk-sdcard.img"
+    output="$deploy_dir/r2os-image-k230-canmv.sdk-sdcard.img"
 elif [[ "$output" != /* ]]; then
     output="$PWD/$output"
 fi
@@ -128,7 +128,7 @@ to_container_path() {
 kernel="$(first_existing "$deploy_dir/Image" "$deploy_dir/Image-k230-canmv.bin" "$deploy_dir"/Image--*.bin 2>/dev/null || true)"
 dtb="$(first_existing "$deploy_dir/k230-canmv.dtb" "$deploy_dir/canaan/k230-canmv.dtb" "$deploy_dir"/k230-canmv*.dtb 2>/dev/null || true)"
 fw_payload="$(first_existing "$deploy_dir/fw_payload-sdk-opensbi.bin" "$deploy_dir/fw_payload.bin" 2>/dev/null || true)"
-rootfs="$(first_existing "$deploy_dir/k230-core-image-k230-canmv.rootfs.ext4" "$deploy_dir"/*.rootfs.ext4 2>/dev/null || true)"
+rootfs="$(first_existing "$deploy_dir/r2os-image-k230-canmv.rootfs.ext4" "$deploy_dir"/*.rootfs.ext4 2>/dev/null || true)"
 
 # -- locate rtt_system.bin (optional) --
 sdk_artifact_dir="${K230_SDK_ARTIFACT_DIR:-}"
@@ -190,13 +190,13 @@ build_sdk_opensbi_payload() {
         set -euo pipefail
         work="$(find /work/build -path "*/tmp/work/riscv64imafdc-poky-linux/opensbi/1.8.1" -type d 2>/dev/null | sort | tail -n 1)"
         if [ -z "$work" ]; then
-            printf "Yocto OpenSBI work directory not found. Build k230-core-image first.\n" >&2
+            printf "Yocto OpenSBI work directory not found. Build r2os-image first.\n" >&2
             exit 2
         fi
         toolchain_bin="$work/recipe-sysroot-native/usr/bin/riscv64-poky-linux"
         sysroot="$work/recipe-sysroot"
         if [ ! -x "$toolchain_bin/riscv64-poky-linux-gcc" ] || [ ! -d "$sysroot" ]; then
-            printf "Yocto OpenSBI toolchain sysroot not found. Build k230-core-image first.\n" >&2
+            printf "Yocto OpenSBI toolchain sysroot not found. Build r2os-image first.\n" >&2
             exit 2
         fi
         export PATH="$toolchain_bin:$PATH"
@@ -280,7 +280,7 @@ run_mkimage() {
         set -euo pipefail
         mkimage="$(find /work/build -path "*/tmp/work/*/u-boot-tools-native/*/build/tools/mkimage" -type f -perm -111 2>/dev/null | sort | tail -n 1)"
         if [ ! -x "$mkimage" ]; then
-            printf "Yocto native mkimage not found. Build k230-core-image first.\n" >&2
+            printf "Yocto native mkimage not found. Build r2os-image first.\n" >&2
             exit 2
         fi
         "$mkimage" -A riscv -O linux -T multi -C gzip \
@@ -372,7 +372,7 @@ resize_ext4_to_fill_partition() {
         e2fsck="$(find /work/build -path "*/tmp/work/*/e2fsprogs-native/*/recipe-sysroot-native/sbin/e2fsck" -type f -perm -111 2>/dev/null | sort | tail -n 1)"
         resize2fs="$(find /work/build -path "*/tmp/work/*/e2fsprogs-native/*/recipe-sysroot-native/sbin/resize2fs" -type f -perm -111 2>/dev/null | sort | tail -n 1)"
         if [ ! -x "$e2fsck" ] || [ ! -x "$resize2fs" ]; then
-            printf "Yocto native e2fsck/resize2fs not found. Build k230-core-image first.\n" >&2
+            printf "Yocto native e2fsck/resize2fs not found. Build r2os-image first.\n" >&2
             exit 2
         fi
         set +e

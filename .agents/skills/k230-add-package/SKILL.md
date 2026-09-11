@@ -68,7 +68,7 @@ Validate the narrowest thing first:
 ```bash
 ./scripts/yocto-bitbake -e <pn> | rg '^(FILE|PV|SRC_URI|SRCREV|PACKAGES|COMPATIBLE_HOST)='
 ./scripts/yocto-bitbake <pn>
-./scripts/yocto-bitbake k230-core-image
+./scripts/yocto-bitbake r2os-image
 ```
 
 Then confirm image inclusion:
@@ -80,7 +80,7 @@ setup_init="$(find /work/build -mindepth 3 -maxdepth 4 -path "*/build/init-build
 set +u
 source "$setup_init" >/dev/null
 set -u
-grep "^<pn> " tmp/deploy/images/k230-canmv/k230-core-image-k230-canmv.rootfs.manifest
+grep "^<pn> " tmp/deploy/images/k230-canmv/r2os-image-k230-canmv.rootfs.manifest
 find tmp/deploy/ipk -name "<pn>*.ipk" -print | sort
 oe-pkgdata-util list-pkg-files <pn>
 '
@@ -101,7 +101,7 @@ temporary copy of the SDK SD image so QEMU writes do not dirty the deliverable:
 
 ```bash
 mkdir -p build-artifacts/k230-canmv/qemu
-cp -f build-artifacts/k230-canmv/k230-core-image-k230-canmv.sdk-sdcard.img \
+cp -f build-artifacts/k230-canmv/r2os-image-k230-canmv.sdk-sdcard.img \
   build-artifacts/k230-canmv/qemu/<pn>-test-sdk-sdcard.img
 ./scripts/k230-qemu-run --deploy build-artifacts/k230-canmv --sd --uboot \
   --sdk-sd build-artifacts/k230-canmv/qemu/<pn>-test-sdk-sdcard.img

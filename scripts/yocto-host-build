@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 
 setup_only=0
-image_target="k230-core-image"
+image_target="r2os-image"
 deploy_dir="build-artifacts/k230-canmv"
 
 usage() {

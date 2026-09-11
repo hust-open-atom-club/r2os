@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 
-image_target="${K230_IMAGE_TARGET:-k230-core-image}"
+image_target="${K230_IMAGE_TARGET:-r2os-image}"
 deploy_dir="build-artifacts/k230-canmv"
 make_sdk=1
 raw_targets=()
@@ -24,7 +24,7 @@ packagegroup-k230-common. Convenience aliases:
 
 Options:
   --image TARGET  Image target to build after components.
-                  Default: ${K230_IMAGE_TARGET:-k230-core-image}
+                  Default: ${K230_IMAGE_TARGET:-r2os-image}
   --deploy DIR    Export destination inside this checkout.
                   Default: build-artifacts/k230-canmv
   --no-sdk        Skip SDK-compatible SD image generation.
