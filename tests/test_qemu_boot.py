@@ -300,12 +300,18 @@ class SdkSdImageLayoutTest(unittest.TestCase):
             rootfs["end_lba"] - rootfs["start_lba"] + 1
         ) * 512
         # The rootfs partition extends to GPT last_usable, whose byte length is
-        # not guaranteed to be divisible by the ext4 block size.  resize2fs
-        # rounds down to the nearest usable filesystem geometry; keep the
-        # resulting slack below one 4KiB storage page.
+        # not guaranteed to be divisible by the ext4 block size.  resize2fs can
+        # only grow along block group boundaries, so a small tail is expected
+        # and its size depends on the block size mke2fs picked for the 256MiB
+        # rootfs image (1KiB blocks here, giving a 15.5KiB tail).  A tail above
+        # 1MiB would mean the partition is not actually filled.
         filesystem_slack = partition_bytes - ext4["filesystem_bytes"]
         self.assertLessEqual(ext4["filesystem_bytes"], partition_bytes)
-        self.assertLess(filesystem_slack, 4096)
+        self.assertLess(
+            filesystem_slack, 1024 * 1024,
+            f"ext4 leaves {filesystem_slack} bytes unused "
+            f"(block size {ext4.get('block_size')})",
+        )
 
 # ---------------------------------------------------------------------------
 # Static deploy artifact existence tests
