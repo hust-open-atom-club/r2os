@@ -199,7 +199,7 @@ def prepare_no_host_key_deploy(script_dir: Path, deploy: Path) -> Path:
     _patch_rootfs_for_no_host_key(
         repo_root,
         rootfs_copy,
-        repo_root / "recipes-core/dropbear/files/dropbear",
+        repo_root / "meta-r2os-distro/recipes-core/dropbear/files/dropbear",
     )
     shutil.copy2(kernel, tmp_deploy / "Image")
     shutil.copy2(dtb, tmp_deploy / "k230-canmv.dtb")

@@ -364,7 +364,7 @@ class DeployArtifactsTest(unittest.TestCase):
 
     def test_fstab_matches_wic_devices(self):
         """fstab labels must work for direct WIC and SDK GPT layouts."""
-        fstab = REPO_ROOT / "recipes-core/base-files/files/fstab"
+        fstab = REPO_ROOT / "meta-r2os-distro/recipes-core/base-files/files/fstab"
         if not fstab.is_file():
             self.skipTest("fstab not found")
         text = _read(fstab)

@@ -8,19 +8,21 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CFG = REPO_ROOT / "meta-k230-bsp/recipes-kernel/linux/files/k230-canmv.cfg"
-FSTAB = REPO_ROOT / "recipes-core/base-files/files/fstab"
-PROFILE = REPO_ROOT / "recipes-core/base-files/files/profile"
-ISSUE = REPO_ROOT / "recipes-core/base-files/files/issue"
-MOTD = REPO_ROOT / "recipes-core/base-files/files/motd"
-K230_NETWORK = REPO_ROOT / "recipes-core/base-files/files/k230-network"
-BBAPPEND = REPO_ROOT / "recipes-core/base-files/base-files_%.bbappend"
-IMAGE_BB = REPO_ROOT / "recipes-core/images/k230-core-image.bb"
-DISTRO_CONF = REPO_ROOT / "conf/distro/r2os.conf"
-PACKAGEGROUP_BB = REPO_ROOT / "recipes-core/packagegroups/packagegroup-k230-common.bb"
-DROPBEAR_BBAPPEND = REPO_ROOT / "recipes-core/dropbear/dropbear_%.bbappend"
-DROPBEAR_INIT = REPO_ROOT / "recipes-core/dropbear/files/dropbear"
-PACKAGEGROUP_DEV_BB = REPO_ROOT / "recipes-core/packagegroups/packagegroup-k230-development.bb"
+BSP_LAYER = REPO_ROOT / "meta-k230-bsp"
+DISTRO_LAYER = REPO_ROOT / "meta-r2os-distro"
+CFG = BSP_LAYER / "recipes-kernel/linux/files/k230-canmv.cfg"
+FSTAB = DISTRO_LAYER / "recipes-core/base-files/files/fstab"
+PROFILE = DISTRO_LAYER / "recipes-core/base-files/files/profile"
+ISSUE = DISTRO_LAYER / "recipes-core/base-files/files/issue"
+MOTD = DISTRO_LAYER / "recipes-core/base-files/files/motd"
+K230_NETWORK = DISTRO_LAYER / "recipes-core/base-files/files/k230-network"
+BBAPPEND = DISTRO_LAYER / "recipes-core/base-files/base-files_%.bbappend"
+IMAGE_BB = DISTRO_LAYER / "recipes-core/images/k230-core-image.bb"
+DISTRO_CONF = DISTRO_LAYER / "conf/distro/r2os.conf"
+PACKAGEGROUP_BB = DISTRO_LAYER / "recipes-core/packagegroups/packagegroup-k230-common.bb"
+DROPBEAR_BBAPPEND = DISTRO_LAYER / "recipes-core/dropbear/dropbear_%.bbappend"
+DROPBEAR_INIT = DISTRO_LAYER / "recipes-core/dropbear/files/dropbear"
+PACKAGEGROUP_DEV_BB = DISTRO_LAYER / "recipes-core/packagegroups/packagegroup-k230-development.bb"
 
 
 def _read(path: Path) -> str:
@@ -409,7 +411,7 @@ class DropbearOverrideTest(unittest.TestCase):
                          "dropbear override logs keygen status to stable path")
 
     def test_no_private_hostkey_in_layer(self):
-        hostkey_files = list((REPO_ROOT / "recipes-core/dropbear/files").glob("*host*key*"))
+        hostkey_files = list((DROPBEAR_INIT.parent).glob("*host*key*"))
         self.assertEqual(hostkey_files, [],
                          f"dropbear layer must not ship private host keys: {hostkey_files}")
 

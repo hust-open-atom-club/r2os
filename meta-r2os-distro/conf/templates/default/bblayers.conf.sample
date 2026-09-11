@@ -10,5 +10,5 @@ BBLAYERS ?= " \
   ##OEROOT##/../layers/meta-yocto/meta-poky \
   /work/src/meta-k230-bsp \
   /work/src/meta-r2os-apps \
-  /work/src \
+  /work/src/meta-r2os-distro \
   "

@@ -16,12 +16,13 @@ Add packages through the layer, not by hand-editing generated rootfs files.
    - Check BitBake targets with `./scripts/yocto-bitbake -s | rg -i "<name>"`.
    - If the requested name may be a typo, verify upstream before editing.
 3. If a recipe already exists in enabled layers, only add the runtime package
-   name to `recipes-core/packagegroups/packagegroup-k230-common.bb`.
+   name to `meta-r2os-distro/recipes-core/packagegroups/packagegroup-k230-common.bb`.
 4. If no recipe exists, add a focused local recipe under the closest category:
    - CLI/support tools and application packages: put new recipes in the
      `meta-r2os-apps` layer under `meta-r2os-apps/recipes-support/<pn>/<pn>_<pv>.bb`.
-   - Core image/packagegroup changes: `recipes-core/...`
-   - Kernel/BSP/firmware: use the existing BSP/kernel locations instead.
+   - Core image/packagegroup changes: `meta-r2os-distro/recipes-core/...`
+   - Kernel/BSP/firmware: `meta-k230-bsp/recipes-kernel/` and
+     `meta-k230-bsp/recipes-bsp/`.
 5. Prefer source builds through Yocto classes when practical. Use a
    prebuilt binary only when the upstream project makes source builds fragile
    for this layer, then pin `PV`, `SRC_URI`, checksum, license checksum, and
