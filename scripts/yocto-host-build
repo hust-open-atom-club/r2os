@@ -5,7 +5,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 
 setup_only=0
-image_target="k230-core-image"
+image_target="r2os-image"
 deploy_dir="build-artifacts/k230-canmv"
 
 usage() {
@@ -121,6 +121,19 @@ EOF
     fi
 }
 
+append_legacy_unpackdir_conf() {
+    # Scarthgap has no UNPACKDIR and unpacks directly under WORKDIR.  Wrynose
+    # defines it as ${WORKDIR}/sources and rejects ${WORKDIR} for every recipe,
+    # so the compatibility default must not live in a layer.conf.
+    if ! grep -q "# Added by scripts/yocto-host-build: legacy UNPACKDIR" conf/local.conf 2>/dev/null; then
+        cat >> conf/local.conf <<'EOF'
+
+# Added by scripts/yocto-host-build: legacy UNPACKDIR
+UNPACKDIR = "${WORKDIR}"
+EOF
+    fi
+}
+
 set +u
 source "$poky_dir/oe-init-build-env" "$build_dir" >/dev/null
 set -u
@@ -128,14 +141,17 @@ set -u
 mkdir -p conf
 append_local_conf
 
+poky_branch="$(git -C "$poky_dir" branch --show-current 2>/dev/null || true)"
+
 case "$skip_opensbi_patch" in
     1|yes|true|on)
         append_opensbi_compat_conf
+        append_legacy_unpackdir_conf
         ;;
     auto)
-        poky_branch="$(git -C "$poky_dir" branch --show-current 2>/dev/null || true)"
         if [ "$poky_branch" = "scarthgap" ]; then
             append_opensbi_compat_conf
+            append_legacy_unpackdir_conf
         fi
         ;;
     0|no|false|off|"")
@@ -160,7 +176,14 @@ add_layer_if_missing() {
 if [ -d "$meta_riscv" ]; then
     add_layer_if_missing "$meta_riscv"
 fi
-add_layer_if_missing "$repo_root"
+
+# R2 OS layers in dependency order.
+for layer_path in \
+    "$repo_root/meta-k230-bsp" \
+    "$repo_root/meta-r2os-apps" \
+    "$repo_root/meta-r2os-distro"; do
+    add_layer_if_missing "$layer_path"
+done
 
 if [ "$setup_only" -eq 1 ]; then
     printf 'Host Yocto environment ready: %s\n' "$build_dir"

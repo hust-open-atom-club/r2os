@@ -12,7 +12,6 @@ SRC_URI = "git://github.com/fastfetch-cli/fastfetch.git;protocol=https;branch=ma
            file://config.jsonc \
            file://r2os-logo.txt"
 SRCREV = "4a61cdb1c9e4044ee959751e00bac1266dc6ebf9"
-S = "${UNPACKDIR}/git"
 
 inherit cmake pkgconfig
 

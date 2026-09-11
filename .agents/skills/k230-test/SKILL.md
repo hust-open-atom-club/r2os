@@ -1,6 +1,6 @@
 ---
 name: k230-test
-description: Use when validating meta-k230 scripts, BitBake metadata, generated artifacts, QEMU boot, SSH access, or runtime tools.
+description: Use when validating R² OS scripts, BitBake metadata, generated artifacts, QEMU boot, SSH access, or runtime tools.
 license: MIT
 ---
 

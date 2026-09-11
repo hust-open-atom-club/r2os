@@ -20,8 +20,8 @@ SCRIPT = REPO_ROOT / "scripts" / "k230-qemu-run"
 SMOKE_SCRIPT = REPO_ROOT / "scripts" / "k230-qemu-smoke"
 CHECK_SCRIPT = REPO_ROOT / "scripts" / "k230-check"
 SDK_IMAGE_SCRIPT = REPO_ROOT / "scripts" / "k230-sdk-image"
-MACHINE_CONF = REPO_ROOT / "conf" / "machine" / "k230-canmv.conf"
-WKS_FILE = REPO_ROOT / "wic" / "k230-canmv-sdimage.wks"
+MACHINE_CONF = REPO_ROOT / "meta-k230-bsp" / "conf" / "machine" / "k230-canmv.conf"
+WKS_FILE = REPO_ROOT / "meta-k230-bsp" / "wic" / "k230-canmv-sdimage.wks"
 UBOOT_BINARY = REPO_ROOT / "prebuilt" / "k230-sdk" / "riscv-nomtee" / "u-boot"
 
 DEPLOY_DIR = os.environ.get("K230_DEPLOY_DIR", str(REPO_ROOT / "build-artifacts" / "k230-canmv"))
@@ -300,12 +300,18 @@ class SdkSdImageLayoutTest(unittest.TestCase):
             rootfs["end_lba"] - rootfs["start_lba"] + 1
         ) * 512
         # The rootfs partition extends to GPT last_usable, whose byte length is
-        # not guaranteed to be divisible by the ext4 block size.  resize2fs
-        # rounds down to the nearest usable filesystem geometry; keep the
-        # resulting slack below one 4KiB storage page.
+        # not guaranteed to be divisible by the ext4 block size.  resize2fs can
+        # only grow along block group boundaries, so a small tail is expected
+        # and its size depends on the block size mke2fs picked for the 256MiB
+        # rootfs image (1KiB blocks here, giving a 15.5KiB tail).  A tail above
+        # 1MiB would mean the partition is not actually filled.
         filesystem_slack = partition_bytes - ext4["filesystem_bytes"]
         self.assertLessEqual(ext4["filesystem_bytes"], partition_bytes)
-        self.assertLess(filesystem_slack, 4096)
+        self.assertLess(
+            filesystem_slack, 1024 * 1024,
+            f"ext4 leaves {filesystem_slack} bytes unused "
+            f"(block size {ext4.get('block_size')})",
+        )
 
 # ---------------------------------------------------------------------------
 # Static deploy artifact existence tests
@@ -364,7 +370,7 @@ class DeployArtifactsTest(unittest.TestCase):
 
     def test_fstab_matches_wic_devices(self):
         """fstab labels must work for direct WIC and SDK GPT layouts."""
-        fstab = REPO_ROOT / "recipes-core/base-files/files/fstab"
+        fstab = REPO_ROOT / "meta-r2os-distro/recipes-core/base-files/files/fstab"
         if not fstab.is_file():
             self.skipTest("fstab not found")
         text = _read(fstab)
@@ -577,9 +583,9 @@ class QemuRunScriptTest(unittest.TestCase):
             for name in (
                 "Image",
                 "k230-canmv.dtb",
-                "k230-core-image-k230-canmv.rootfs.cpio.gz",
-                "k230-core-image-k230-canmv.rootfs.wic",
-                "k230-core-image-k230-canmv.sdk-sdcard.img",
+                "r2os-image-k230-canmv.rootfs.cpio.gz",
+                "r2os-image-k230-canmv.rootfs.wic",
+                "r2os-image-k230-canmv.sdk-sdcard.img",
             ):
                 (deploy / name).write_bytes(b"x")
 

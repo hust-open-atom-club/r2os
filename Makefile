@@ -4,7 +4,7 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-IMAGE_TARGET ?= k230-core-image
+IMAGE_TARGET ?= r2os-image
 DEPLOY_DIR ?= build-artifacts/k230-canmv
 DEPLOY_PATH := $(abspath $(DEPLOY_DIR))
 

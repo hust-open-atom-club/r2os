@@ -10,7 +10,7 @@ run_qemu_smoke=0
 run_qemu_smoke_all=0
 qemu_mode="initrd"
 deploy_dir="${K230_DEPLOY_DIR:-build-artifacts/k230-canmv}"
-qemu_timeout="${K230_QEMU_SMOKE_TIMEOUT:-120}"
+qemu_timeout="${K230_QEMU_SMOKE_TIMEOUT:-}"
 
 usage() {
     cat <<EOF
@@ -23,13 +23,14 @@ Run fast static checks by default:
   K230 DTS compilation
 
 Optional checks:
-  --bitbake        Build k230-core-image with scripts/yocto-bitbake.
+  --bitbake        Build r2os-image with scripts/yocto-bitbake.
   --export-deploy  Export deploy artifacts with scripts/yocto-export-deploy.
   --qemu-smoke     Boot QEMU, enter the shell, and run fastfetch.
   --qemu-smoke-all Boot all three QEMU paths in sequence: initrd, sd, uboot.
   --qemu-mode MODE QEMU smoke mode: initrd, sd, or uboot (default: initrd).
   --deploy DIR     Deploy directory for QEMU smoke.
-  --timeout SEC    QEMU smoke timeout in seconds (default: 120).
+  --timeout SEC    QEMU smoke timeout in seconds.
+                   Defaults: initrd/sd 120, uboot 300.
 EOF
 }
 
@@ -84,7 +85,10 @@ case "$qemu_mode" in
 esac
 
 case "$qemu_timeout" in
-    ''|*[!0-9]*)
+    "")
+        # Empty means "let the smoke script pick the per-mode default".
+        ;;
+    *[!0-9]*)
         printf 'Invalid --timeout value: %s\n' "$qemu_timeout" >&2
         exit 2
         ;;
@@ -99,11 +103,13 @@ run_step() {
 }
 
 run_qemu_smoke() {
-    "$script_dir/k230-qemu-smoke" \
-        --mode "$qemu_mode" \
-        --deploy "$deploy_dir" \
-        --timeout "$qemu_timeout" \
-        --command fastfetch
+    local args=(--mode "$qemu_mode" --deploy "$deploy_dir" --command fastfetch)
+
+    if [ -n "$qemu_timeout" ]; then
+        args+=(--timeout "$qemu_timeout")
+    fi
+
+    "$script_dir/k230-qemu-smoke" "${args[@]}"
 }
 
 cd "$repo_root"
@@ -127,18 +133,34 @@ shell_scripts=(
     scripts/yocto-volumes
 )
 
+python_sources=(
+    scripts/gen-rtt-system
+    scripts/k230-qemu-smoke
+    tests/test_gen_rtt_system.py
+    tests/test_embedded_optimizations.py
+    tests/test_qemu_boot.py
+    tests/test_layer_layout.py
+)
+
+python_modules=(
+    tests.test_gen_rtt_system
+    tests.test_embedded_optimizations
+    tests.test_qemu_boot
+    tests.test_layer_layout
+)
+
 run_step "Shell syntax" bash -n "${shell_scripts[@]}"
-run_step "Python bytecode" python3 -m py_compile scripts/gen-rtt-system scripts/k230-qemu-smoke tests/test_gen_rtt_system.py tests/test_embedded_optimizations.py tests/test_qemu_boot.py
-run_step "Python unit tests" python3 -m unittest tests.test_gen_rtt_system tests.test_embedded_optimizations tests.test_qemu_boot
+run_step "Python bytecode" python3 -m py_compile "${python_sources[@]}"
+run_step "Python unit tests" python3 -m unittest "${python_modules[@]}"
 
 if ! command -v dtc >/dev/null 2>&1; then
     printf 'dtc not found; install device-tree-compiler to run DTS checks.\n' >&2
     exit 2
 fi
-run_step "DTS syntax" dtc -I dts -O dtb -o /tmp/k230-canmv.dtb recipes-kernel/linux/files/k230-canmv.dts
+run_step "DTS syntax" dtc -I dts -O dtb -o /tmp/k230-canmv.dtb meta-k230-bsp/recipes-kernel/linux/files/k230-canmv.dts
 
 if [ "$run_bitbake" -eq 1 ]; then
-    run_step "BitBake image" "$script_dir/yocto-bitbake" k230-core-image
+    run_step "BitBake image" "$script_dir/yocto-bitbake" r2os-image
 fi
 
 if [ "$run_export" -eq 1 ]; then

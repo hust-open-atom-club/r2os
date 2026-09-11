@@ -8,5 +8,7 @@ BBLAYERS ?= " \
   ##OEROOT##/../layers/openembedded-core/meta \
   ##OEROOT##/../layers/meta-yocto/meta-yocto-bsp \
   ##OEROOT##/../layers/meta-yocto/meta-poky \
-  /work/src \
+  /work/src/meta-k230-bsp \
+  /work/src/meta-r2os-apps \
+  /work/src/meta-r2os-distro \
   "

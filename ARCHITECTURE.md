@@ -1,61 +1,45 @@
-# R² OS / meta-k230 Architecture
+# R² OS Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐    术语说明（Yocto 相关）
 │                          Yocto / Poky (Wrynose)                              │    Yocto：嵌入式 Linux 构建体系，不是单一发行版
-│  ┌───────────────────────────────────────────────────────────────────────┐   │    Poky：Yocto 官方参考发行版和默认构建基础
-│  │             meta-k230  BSP Layer  (priority: 6)                       │   │    BSP：板级支持层，描述特定 SoC/板卡的构建支持
-│  │             LAYERSERIES_COMPAT = scarthgap / wrynose                  │   │    Layer：元数据层，包含 recipe、配置和 class
-│  └───────────────────────────────────────────────────────────────────────┘   │    meta-k230：本项目的 K230 BSP layer
-└──────────────────────────────────────────────────────────────────────────────┘    LAYERSERIES_COMPAT：声明兼容的 Yocto 发布系列
+│                                                                              │    Poky：Yocto 官方参考发行版和默认构建基础
+│  meta-k230-bsp      k230       prio 6  machine/kernel/DTS/cfg/OpenSBI/WIC    │    Layer：元数据层，包含 recipe、配置和 class
+│  meta-r2os-distro   r2os       prio 7  distro/image/packagegroups/templates  │    BBFILE_COLLECTIONS：本层对外声明的集合名
+│  meta-r2os-apps     r2os-apps  prio 6  fastfetch/picoclaw                    │    BBFILE_PRIORITY：同 PN 重复时高优先级胜出
+│  LAYERDEPENDS: r2os -> core, k230, r2os-apps                                 │    LAYERDEPENDS：声明层之间的依赖关系
+│  LAYERSERIES_COMPAT: scarthgap wrynose                                       │    LAYERSERIES_COMPAT：声明兼容的 Yocto 发布系列
+└──────────────────────────────────────────────────────────────────────────────┘    仓库根不是 layer：只保留 scripts/docker/tests/docs/prebuilt
                                       │    BitBake：Yocto 的任务执行和依赖调度引擎
                                       v    Recipe/.bb：描述源码、依赖、编译和安装步骤
 ┌──────────────────────────────────────────────────────────────────────────────┐    配置相关
 │                           Configuration Layer                                │    bblayers.conf：列出参与解析的 layer
 │                                                                              │    local.conf：本地构建参数，例如 MACHINE/DISTRO/缓存路径
-│  conf/templates/default/                conf/fragments/                      │    template：初始化 build 目录时使用的配置模板
-│  ┌──────────────────────────┐           ┌──────────────────────┐             │    fragment：可复用的小段配置，用于组合构建参数
-│  │ bblayers.conf.sample     │           │ distro/r2os    │             │    DISTRO：发行版策略，决定 init、包格式和功能集合
-│  │   - meta (oe-core)       │           │   -> DISTRO_NAME     │             │    MACHINE：目标硬件/板卡，选择内核、设备树和启动参数
-│  │   - meta-yocto-bsp       │           │      = "R² OS"       │             │    DISTRO_NAME：发行版显示名称，用于 /etc/os-release
-│  │                          │           │                      │             │    DL_DIR：源码下载缓存，复用后可减少重复下载
-│  │   - meta-poky            │           │ machine/k230-canmv   │             │    SSTATE：共享状态缓存，复用后可减少重复编译
-│  │   - meta-k230            │           │  -> MACHINE = "canmv"│             │    oe-core/meta：OpenEmbedded Core，提供基础 recipe
-│  │                          │           └──────────────────────┘             │    meta-poky：Poky 发行版相关 metadata
-│  │ local.conf.sample        │                                                │    meta-yocto-bsp：Yocto 示例 BSP layer
-│  │   - MACHINE = k230-canmv │                                                │
-│  │   - DISTRO  = r2os │                                                │    发行版/机器相关
-│  │   - DL_DIR / SSTATE path │                                                │    conf/machine：定义板卡、CPU 架构、镜像类型和启动方式
-│  └──────────────────────────┘                                                │    conf/distro：定义发行版策略、包格式和功能开关
-│                                                                              │    IMAGE_FEATURES：镜像级功能，例如 SSH、空密码、包管理
-│  conf/machine/k230-canmv.conf            conf/distro/r2os.conf         │    DISTRO_FEATURES：发行版能力集合，例如 ipv4、nfs、pam
-│  ┌────────────────────────────────┐      ┌────────────────────────────┐      │    PACKAGE_CLASSES/ipk：选择生成 .ipk 软件包
-│  │ SoC: Canaan K230               │      │ Name:   R² OS              │      │    RootFS：镜像中的根文件系统内容
-│  │                                │      │ Base:   poky.conf          │      │    DISTRO_NAME：发行版显示名称
-│  │ Arch: RISC-V 64 (rv64imafdc)   │      │ Package: ipk (.ipk)        │      │    IMAGE_FSTYPES：决定输出 cpio.gz、ext4、wic.gz 等格式
-│  │ CPU:  T-HEAD C908 x 1 core     │      │ Init:   BusyBox (no sysd)  │      │    BusyBox init：轻量 init；这里没有启用 systemd
-│  │ RAM:  2GB (QEMU)               │      │                            │      │    Dropbear：轻量 SSH server，作为普通包安装
-│  │                                │      │ Image Features:            │      │    empty-root-password：root 密码为空，便于 QEMU 验证
-│  │ Kernel:   linux-k230 6.18.28   │      │  - allow-empty-password    │      │    allow-empty-password：开发镜像常用，允许空密码登录
-│  │ Firmware: OpenSBI (generic)    │      │  - empty-root-password     │      │    serial autologin：由 K230 image 后处理 inittab
-│  │ Bootloader: U-Boot (ext SDK)   │      │  - allow-root-login        │      │    usrmerge：使用 /usr 合并目录布局
-│  │                                │      │                            │      │
-│  │ Image Types:                   │      │                            │      │    输出/缓存相关
-│  │  cpio.gz / ext4 / wic.gz / tar │      │ Distro Features:           │      │    tmp/deploy/images：最终镜像、内核和设备树输出目录
-│  │                                │      │  ipv4 / ipv6 / nfs / pam   │      │    deploy-rpm/ipk/deb：软件包输出目录，取决于包格式
-│  │ QEMU: -machine k230-canmv      │      │  usrmerge                  │      │    sstate-cache：任务结果缓存，可跨 build 复用
-│  │  -smp 1  -m 2G  -nographic     │      └────────────────────────────┘      │    downloads：源码包和 git mirror 缓存
-│  │  -nic user,model=usb-rtl8152   │                                          │
-│  │  SSH bind: 127.0.0.1:10022     │                                          │
-│  │  -drive if=sd,format=raw       │                                          │
-│  └────────────────────────────────┘                                          │
+│  meta-r2os-distro/conf/templates/default/                                    │    template：初始化 build 目录时使用的配置模板
+│  meta-r2os-distro/conf/fragments/distro/                                    │
+│  meta-k230-bsp/conf/fragments/machine/                                      │    fragment：可复用的小段配置，用于组合构建参数
+│                                                                              │    DISTRO：发行版策略，决定 init、包格式和功能集合
+│  bblayers.conf.sample layer order:                                           │    MACHINE：目标硬件/板卡，选择内核、设备树和启动参数
+│    meta (oe-core) / meta-yocto-bsp / meta-poky                               │    oe-core/meta：OpenEmbedded Core，提供基础 recipe
+│    meta-k230-bsp / meta-r2os-apps / meta-r2os-distro                         │    meta-poky：Poky 发行版相关 metadata
+│                                                                              │    meta-yocto-bsp：Yocto 示例 BSP layer
+│  meta-k230-bsp/conf/machine/k230-canmv.conf                                  │    conf/machine：定义板卡、CPU 架构、镜像类型和启动方式
+│    SoC: Canaan K230, RISC-V 64 (rv64imafdc), T-HEAD C908 x 1 core            │    conf/distro：定义发行版策略、包格式和功能开关
+│    Kernel: linux-k230 6.18.28,  Firmware: OpenSBI (generic)                  │    IMAGE_FEATURES：镜像级功能，例如 SSH、空密码、包管理
+│    Image Types: cpio.gz / ext4 / wic.gz / tar.zst                            │    DISTRO_FEATURES：发行版能力集合，例如 ipv4、nfs、pam
+│    QEMU: -machine k230-canmv, -smp 1, -m 2G, -nographic, ssh 127.0.0.1:10022 │    PACKAGE_CLASSES/ipk：选择生成 .ipk 软件包
+│                                                                              │    RootFS：镜像中的根文件系统内容
+│  meta-r2os-distro/conf/distro/r2os.conf                                      │    DISTRO_NAME：发行版显示名称
+│    Name: R² OS,  Base: poky.conf,  Package: ipk (.ipk)                       │    tmp/deploy/images：镜像、内核和设备树输出目录
+│    Init: BusyBox (no systemd),  SSH: Dropbear                                │    sstate-cache：任务结果缓存，可跨 build 复用
+│    Login: empty root password,  r2os collection prio 7                       │    downloads：源码包和 git mirror 缓存
 └──────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       v
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                            Recipes Layer                                     │
 │                                                                              │
-│  recipes-kernel/linux/linux-k230_6.18.bb                                     │    recipes-kernel：内核相关 recipe 的常见目录
+│  meta-k230-bsp/recipes-kernel/linux/linux-k230_6.18.bb                       │    recipes-kernel：内核相关 recipe 的常见目录
 │  ┌───────────────────────────────────────────────────────────────────────┐   │    linux-k230_6.18.bb：内核 recipe，版本写在文件名中
 │  │ Source: kernel.org  linux-6.18.28.tar.xz                              │   │    SRC_URI：recipe 中声明源码下载位置和补丁
 │  │ Config: defconfig  +  k230-canmv.cfg  (merge_config.sh)               │   │    merge_config.sh：把 defconfig 和配置片段合并成最终配置
@@ -63,14 +47,14 @@
 │  │ Output: Image  +  canaan/k230-canmv.dtb                               │   │    do_deploy：把内核、设备树等产物复制到 deploy 目录
 │  └───────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
-│  recipes-core/images/k230-core-image.bb                                      │    recipes-core/images：镜像 recipe 的常见目录
+│  meta-r2os-distro/recipes-core/images/r2os-image.bb                     │    recipes-core/images：镜像 recipe 的常见目录
 │  ┌───────────────────────────────────────────────────────────────────────┐   │    image recipe：定义最终 rootfs 要安装什么
 │  │ Inherits: core-image                                                  │   │    inherit：复用 .bbclass 中定义的通用构建逻辑
 │  │ RootFS:   256MB + 64MB extra                                          │   │    IMAGE_ROOTFS_*：控制根文件系统大小和额外空间
 │  │ Installs: packagegroup-k230-common                                    │   │    IMAGE_INSTALL：镜像预装包列表通常在这里汇总
 │  └───────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
-│  recipes-core/packagegroups/packagegroup-k230-common.bb                      │    packagegroup：用一个 recipe 聚合多组运行时软件包
+│  meta-r2os-distro/recipes-core/packagegroups/packagegroup-k230-common.bb     │    packagegroup：用一个 recipe 聚合多组运行时软件包
 │  ┌───────────────────────────────────────────────────────────────────────┐   │    RDEPENDS：packagegroup 常用它声明运行时依赖
 │  │ ┌─────────────────────────────┐  ┌────────────────────────────────┐   │   │
 │  │ │ OE Core CLI Tools           │  │ Networking                     │   │   │
@@ -96,7 +80,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                         WIC Image Partition Layout                           │
 │                                                                              │
-│  wic/k230-canmv-sdimage.wks                                                  │    .wks：WIC 的磁盘分区布局描述文件
+│  meta-k230-bsp/wic/k230-canmv-sdimage.wks                                    │    .wks：WIC 的磁盘分区布局描述文件
 │  ┌───────────────────────────────────────────────────────────────────────┐   │    WIC：Yocto 用来生成 SD/磁盘镜像的工具
 │  │  MBR (msdos partition table)                                          │   │    MBR/msdos：传统分区表格式
 │  │  ┌──────────────────────┬────────────────────────────────────────┐    │   │    part：.wks 中定义分区的语句
@@ -222,7 +206,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                           Build Artifacts                                    │
 │                                                                              │
-│  $ MACHINE=k230-canmv DISTRO=r2os bitbake k230-core-image              │    bitbake：执行 recipe/task 的命令入口
+│  $ MACHINE=k230-canmv DISTRO=r2os bitbake r2os-image              │    bitbake：执行 recipe/task 的命令入口
 │                                                                              │
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐  ┌────────────┐  │    tmp/deploy/images/${MACHINE}：镜像和启动文件输出目录
 │  │ tmp/deploy/    │  │ tmp/deploy/    │  │ tmp/deploy/    │  │ tmp/deploy │  │

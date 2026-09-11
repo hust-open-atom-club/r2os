@@ -31,32 +31,36 @@ set -u
 
 mkdir -p conf
 
-layer_path="/work/src"
-if [ ! -f "$layer_path/conf/layer.conf" ] && [ -f /work/src/meta-k230/conf/layer.conf ]; then
-    layer_path="/work/src/meta-k230"
-fi
-
-if [ ! -f "$layer_path/conf/layer.conf" ]; then
-    printf "Cannot find meta-k230 layer at /work/src or /work/src/meta-k230.\n" >&2
-    exit 2
-fi
+# Layer directories in dependency order.
+layer_candidates=(
+    /work/src/meta-k230-bsp
+    /work/src/meta-r2os-apps
+    /work/src/meta-r2os-distro
+)
 
 if [ -f conf/bblayers.conf ]; then
-    if [ "$layer_path" = "/work/src" ]; then
-        sed -i "s|/work/src/meta-k230|/work/src|g" conf/bblayers.conf
-    elif [ "$layer_path" = "/work/src/meta-k230" ]; then
-        sed -i "s| /work/src | /work/src/meta-k230 |g" conf/bblayers.conf
-        sed -i "s|^  /work/src \\\\$|  /work/src/meta-k230 \\\\|g" conf/bblayers.conf
-    fi
+    # Repository layer entries are rebuilt below.  Drop stale ones first so a
+    # build directory created before the split converges on the new layout.
+    sed -i "/^[[:space:]]*\/work\/src/d" conf/bblayers.conf
 fi
 
-if ! bitbake-layers show-layers 2>/dev/null | awk "{print \$2}" | grep -qx "$layer_path"; then
-    bitbake-layers add-layer "$layer_path"
+found_layer=0
+for layer_path in "${layer_candidates[@]}"; do
+    [ -f "$layer_path/conf/layer.conf" ] || continue
+    found_layer=1
+    if ! bitbake-layers show-layers 2>/dev/null | awk "{print \$2}" | grep -Fqx "$layer_path"; then
+        bitbake-layers add-layer "$layer_path"
+    fi
+done
+
+if [ "$found_layer" -eq 0 ]; then
+    printf "Cannot find an R2 OS layer under /work/src.\n" >&2
+    exit 2
 fi
 
 if [ -f conf/toolcfg.conf ]; then
     # bitbake-setup controls MACHINE/DISTRO with fragments. Replace the
-    # generated defaults with the K230 fragments from this layer.
+    # generated defaults with the R2 OS fragments from the split layers.
     sed -i "s|^OE_FRAGMENTS .*$|OE_FRAGMENTS += \"distro/r2os machine/k230-canmv\"|" conf/toolcfg.conf
 fi
 

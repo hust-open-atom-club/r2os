@@ -86,11 +86,13 @@ multimedia validation still require hardware or SDK-side integration.
 ## Project Layout
 
 ```text
-conf/                 Yocto layer, machine, distro, and templates
-recipes-*/            BSP, image, kernel, and userspace recipes
+meta-k230-bsp/        Machine, Linux recipe, DTS, OpenSBI, and WIC layout
+meta-r2os-distro/     Distro policy, image, packagegroups, userspace
+meta-r2os-apps/       Application recipes
 scripts/              Build, export, image, and QEMU helpers
 tests/                Metadata, image, and boot tests
-wic/                  Direct SD/WIC layout
+docker/               Yocto build container
+prebuilt/             SDK boot artifacts used by QEMU
 build-artifacts/      Local build output; not committed
 ```
 

@@ -1,6 +1,6 @@
 ---
 name: k230-docker
-description: Use when changing the meta-k230 Dockerfile, Yocto container entrypoint, build image, Docker volumes, proxy handling, or containerized shell workflow.
+description: Use when changing the R² OS Dockerfile, Yocto container entrypoint, build image, Docker volumes, proxy handling, or containerized shell workflow.
 license: MIT
 ---
 

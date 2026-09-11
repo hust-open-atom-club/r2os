@@ -1,6 +1,6 @@
 ---
 name: k230-qemu-run
-description: Use when booting meta-k230 artifacts in QEMU, choosing direct boot versus SDK U-Boot, or checking the running K230 guest.
+description: Use when booting R² OS artifacts in QEMU, choosing direct boot versus SDK U-Boot, or checking the running K230 guest.
 license: MIT
 ---
 

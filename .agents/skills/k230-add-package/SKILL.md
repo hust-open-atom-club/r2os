@@ -1,6 +1,6 @@
 ---
 name: k230-add-package
-description: Use when adding, removing, or validating a software package in the meta-k230 Yocto image, including checking whether BitBake already has a recipe, writing a local recipe, updating packagegroup-k230-common, building the package and image, exporting deploy artifacts, regenerating the SDK SD image, and proving the package exists at runtime.
+description: Use when adding, removing, or validating a software package in the R² OS Yocto image, including checking whether BitBake already has a recipe, writing a local recipe, updating packagegroup-k230-common, building the package and image, exporting deploy artifacts, regenerating the SDK SD image, and proving the package exists at runtime.
 ---
 
 # K230 Add Package
@@ -16,11 +16,13 @@ Add packages through the layer, not by hand-editing generated rootfs files.
    - Check BitBake targets with `./scripts/yocto-bitbake -s | rg -i "<name>"`.
    - If the requested name may be a typo, verify upstream before editing.
 3. If a recipe already exists in enabled layers, only add the runtime package
-   name to `recipes-core/packagegroups/packagegroup-k230-common.bb`.
+   name to `meta-r2os-distro/recipes-core/packagegroups/packagegroup-k230-common.bb`.
 4. If no recipe exists, add a focused local recipe under the closest category:
-   - CLI/support tools: `recipes-support/<pn>/<pn>_<pv>.bb`
-   - Core image/packagegroup changes: `recipes-core/...`
-   - Kernel/BSP/firmware: use the existing BSP/kernel locations instead.
+   - CLI/support tools and application packages: put new recipes in the
+     `meta-r2os-apps` layer under `meta-r2os-apps/recipes-support/<pn>/<pn>_<pv>.bb`.
+   - Core image/packagegroup changes: `meta-r2os-distro/recipes-core/...`
+   - Kernel/BSP/firmware: `meta-k230-bsp/recipes-kernel/` and
+     `meta-k230-bsp/recipes-bsp/`.
 5. Prefer source builds through Yocto classes when practical. Use a
    prebuilt binary only when the upstream project makes source builds fragile
    for this layer, then pin `PV`, `SRC_URI`, checksum, license checksum, and
@@ -66,7 +68,7 @@ Validate the narrowest thing first:
 ```bash
 ./scripts/yocto-bitbake -e <pn> | rg '^(FILE|PV|SRC_URI|SRCREV|PACKAGES|COMPATIBLE_HOST)='
 ./scripts/yocto-bitbake <pn>
-./scripts/yocto-bitbake k230-core-image
+./scripts/yocto-bitbake r2os-image
 ```
 
 Then confirm image inclusion:
@@ -78,7 +80,7 @@ setup_init="$(find /work/build -mindepth 3 -maxdepth 4 -path "*/build/init-build
 set +u
 source "$setup_init" >/dev/null
 set -u
-grep "^<pn> " tmp/deploy/images/k230-canmv/k230-core-image-k230-canmv.rootfs.manifest
+grep "^<pn> " tmp/deploy/images/k230-canmv/r2os-image-k230-canmv.rootfs.manifest
 find tmp/deploy/ipk -name "<pn>*.ipk" -print | sort
 oe-pkgdata-util list-pkg-files <pn>
 '
@@ -99,7 +101,7 @@ temporary copy of the SDK SD image so QEMU writes do not dirty the deliverable:
 
 ```bash
 mkdir -p build-artifacts/k230-canmv/qemu
-cp -f build-artifacts/k230-canmv/k230-core-image-k230-canmv.sdk-sdcard.img \
+cp -f build-artifacts/k230-canmv/r2os-image-k230-canmv.sdk-sdcard.img \
   build-artifacts/k230-canmv/qemu/<pn>-test-sdk-sdcard.img
 ./scripts/k230-qemu-run --deploy build-artifacts/k230-canmv --sd --uboot \
   --sdk-sd build-artifacts/k230-canmv/qemu/<pn>-test-sdk-sdcard.img
