@@ -1,4 +1,4 @@
-"""Verify embedded optimizations are correctly wired into meta-k230 configs.
+"""Verify embedded optimizations are correctly wired into the R² OS layer configs.
 
 These are fast static-content checks — no BitBake or QEMU needed.
 """

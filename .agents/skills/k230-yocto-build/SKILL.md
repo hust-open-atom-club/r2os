@@ -1,6 +1,6 @@
 ---
 name: k230-yocto-build
-description: Use when building or rebuilding meta-k230 Yocto images, setting up BitBake, exporting deploy artifacts, or generating the SDK-compatible K230 SD image.
+description: Use when building or rebuilding R² OS Yocto images, setting up BitBake, exporting deploy artifacts, or generating the SDK-compatible K230 SD image.
 license: MIT
 ---
 

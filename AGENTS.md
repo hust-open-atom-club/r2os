@@ -1,18 +1,24 @@
-# R² OS / meta-k230 Agent Guide
+# R² OS Agent Guide
 
 This file is the shared entry point for agents working in this repository.
 Task-specific skills live under `.agents/skills/`.
 
 ## Repo Layout
 
-- `conf/`: Yocto layer, machine, distro, fragments, and templates.
-- `recipes-bsp/`: OpenSBI integration.
-- `recipes-core/`: image and packagegroup definitions.
-- `recipes-kernel/`: Linux recipe, K230 DTS, and kernel config fragment.
-- `wic/`: direct SD/WIC image layout.
+The Yocto metadata is split into three layers:
+
+- `meta-k230-bsp/`: K230 machine, Linux recipe, DTS, kernel config fragment,
+  OpenSBI integration, and the direct SD/WIC layout.
+- `meta-r2os-distro/`: distro policy, image, packagegroups, templates,
+  fragments, and userspace customization.
+- `meta-r2os-apps/`: application recipes such as fastfetch and picoclaw.
+
+The repository root is not a layer; it holds shared tooling and documentation:
+
 - `docker/`: Ubuntu 24.04 Yocto build container.
 - `scripts/`: build, export, image packing, and QEMU run helpers.
-- `prebuilt/`: checked-in SDK U-Boot binary used by QEMU.
+- `tests/`: metadata, image, and boot tests.
+- `prebuilt/`: checked-in SDK U-Boot and RTT artifacts used by QEMU.
 - `.agents/skills/`: focused agent workflows.
 - `build-artifacts/`: local output only; never commit it.
 

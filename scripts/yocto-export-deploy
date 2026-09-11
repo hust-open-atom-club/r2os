@@ -54,7 +54,7 @@ done
 
 case "$dest" in
     ""|.|./|./.|/*|..|../*|*/..|*/../*)
-        printf "Destination must be a non-root relative path inside the meta-k230 checkout: %s\n" "$dest" >&2
+        printf "Destination must be a non-root relative path inside the R² OS checkout: %s\n" "$dest" >&2
         exit 2
         ;;
 esac

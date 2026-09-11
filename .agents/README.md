@@ -1,4 +1,4 @@
-# R² OS / meta-k230 Agent Skills
+# R² OS Agent Skills
 
 Small, repository-local skills for building and running R² OS on K230 Yocto
 Linux. The root `AGENTS.md` is the shared project guide. Rust-first packaging

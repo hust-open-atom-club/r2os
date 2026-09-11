@@ -1,6 +1,6 @@
 ---
 name: k230-config-explain
-description: Use when explaining or changing meta-k230 machine, distro, kernel, DTS, WIC, OpenSBI, image package, or boot configuration.
+description: Use when explaining or changing R² OS machine, distro, kernel, DTS, WIC, OpenSBI, image package, or boot configuration.
 license: MIT
 ---
 

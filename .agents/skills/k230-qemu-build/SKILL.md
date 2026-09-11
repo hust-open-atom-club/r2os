@@ -1,6 +1,6 @@
 ---
 name: k230-qemu-build
-description: Use when building, checking, or refreshing the K230-capable QEMU dependency used by meta-k230.
+description: Use when building, checking, or refreshing the K230-capable QEMU dependency used by R² OS.
 license: MIT
 ---
 

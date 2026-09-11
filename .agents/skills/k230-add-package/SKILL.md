@@ -1,6 +1,6 @@
 ---
 name: k230-add-package
-description: Use when adding, removing, or validating a software package in the meta-k230 Yocto image, including checking whether BitBake already has a recipe, writing a local recipe, updating packagegroup-k230-common, building the package and image, exporting deploy artifacts, regenerating the SDK SD image, and proving the package exists at runtime.
+description: Use when adding, removing, or validating a software package in the R² OS Yocto image, including checking whether BitBake already has a recipe, writing a local recipe, updating packagegroup-k230-common, building the package and image, exporting deploy artifacts, regenerating the SDK SD image, and proving the package exists at runtime.
 ---
 
 # K230 Add Package

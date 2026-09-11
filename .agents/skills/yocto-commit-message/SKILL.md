@@ -1,6 +1,6 @@
 ---
 name: yocto-commit-message
-description: Use when creating, rewriting, reviewing, or splitting commits for meta-k230 or other Yocto/OpenEmbedded layers so commit subjects, bodies, trailers, and patch-series history follow Yocto/OpenEmbedded contribution conventions.
+description: Use when creating, rewriting, reviewing, or splitting commits for R² OS or other Yocto/OpenEmbedded layers so commit subjects, bodies, trailers, and patch-series history follow Yocto/OpenEmbedded contribution conventions.
 ---
 
 # Yocto Commit Message
