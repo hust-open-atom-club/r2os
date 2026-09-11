@@ -31,14 +31,10 @@ set -u
 
 mkdir -p conf
 
-# Layer directories in dependency order.  meta-r2os-apps and meta-r2os-distro
-# are the split layers; /work/src and /work/src/meta-k230 remain as fallbacks
-# for build directories created before the split.
+# Layer directories in dependency order.
 layer_candidates=(
-    /work/src/meta-r2os-apps
     /work/src/meta-k230-bsp
-    /work/src
-    /work/src/meta-k230
+    /work/src/meta-r2os-apps
     /work/src/meta-r2os-distro
 )
 
@@ -58,13 +54,13 @@ for layer_path in "${layer_candidates[@]}"; do
 done
 
 if [ "$found_layer" -eq 0 ]; then
-    printf "Cannot find an R2 OS layer at /work/src.\n" >&2
+    printf "Cannot find an R2 OS layer under /work/src.\n" >&2
     exit 2
 fi
 
 if [ -f conf/toolcfg.conf ]; then
     # bitbake-setup controls MACHINE/DISTRO with fragments. Replace the
-    # generated defaults with the K230 fragments from this layer.
+    # generated defaults with the R2 OS fragments from the split layers.
     sed -i "s|^OE_FRAGMENTS .*$|OE_FRAGMENTS += \"distro/r2os machine/k230-canmv\"|" conf/toolcfg.conf
 fi
 
