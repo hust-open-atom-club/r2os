@@ -83,7 +83,89 @@ EOF
 fi
 
 mkdir -p "/work/src/$dest"
-rsync_args=(-a)
+
+# The SDK image, its work directory, the unpacked SD image cache used by
+# k230-qemu-run and the SDK OpenSBI payload only exist in the export directory,
+# so a mirroring rsync must not delete them.  Keep them only while the SDK
+# image provably comes from the current inputs: k230-sdk-image writes an
+# "<image>.inputs" record holding the hash of every input it used, and keeping
+# an image whose inputs moved on would let the smoke tests validate a previous
+# build.  A missing record counts as unknown provenance and is rebuilt too.
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d " " -f1
+    else
+        shasum -a 256 "$1" | cut -d " " -f1
+    fi
+}
+
+sdk_script="/work/src/scripts/k230-sdk-image"
+default_rtt="/work/src/prebuilt/k230-sdk/riscv-nomtee/rtt_system.bin"
+stale_reason=""
+
+for sdk_image in "/work/src/$dest"/*.sdk-sdcard.img; do
+    [ -f "$sdk_image" ] || continue
+    manifest="$sdk_image.inputs"
+    image_reason=""
+
+    if [ ! -f "$manifest" ]; then
+        image_reason="no .inputs record"
+    else
+        while read -r key want name; do
+            case "$key" in
+                kernel|dtb|rootfs)
+                    # BitBake inputs must be compared against the new deploy
+                    # output, never against a copy left in the export directory.
+                    source_file="$deploy/$name"
+                    ;;
+                fw_payload)
+                    # The K230-tuned payload is only written next to the export.
+                    source_file="$deploy/$name"
+                    if [ ! -f "$source_file" ]; then
+                        source_file="/work/src/$dest/$name"
+                    fi
+                    ;;
+                script)
+                    source_file="$sdk_script"
+                    ;;
+                rtt_source)
+                    if [ "$want" != "default" ]; then
+                        image_reason="built with a non-default RTT firmware ($want)"
+                    fi
+                    continue
+                    ;;
+                rtt)
+                    source_file="$default_rtt"
+                    ;;
+            esac
+            if [ ! -f "$source_file" ]; then
+                image_reason="$key ($name) is missing"
+            elif [ "$(sha256_of "$source_file")" != "$want" ]; then
+                image_reason="$key ($name) changed"
+            fi
+            [ -z "$image_reason" ] || break
+        done < "$manifest"
+    fi
+
+    if [ -n "$image_reason" ]; then
+        stale_reason="$(basename "$sdk_image"): $image_reason"
+        break
+    fi
+done
+
+if [ -n "$stale_reason" ]; then
+    rm -rf "/work/src/$dest"/*.sdk-sdcard.img \
+        "/work/src/$dest"/*.sdk-sdcard.img.inputs \
+        "/work/src/$dest"/k230-sdk-image-work \
+        "/work/src/$dest"/fw_payload-sdk-opensbi.bin
+    printf "Invalidated the derived SDK artifacts: %s\n" "$stale_reason" >&2
+fi
+
+rsync_args=(-a
+    --exclude "*.sdk-sdcard.img"
+    --exclude "*.sdk-sdcard.img.inputs"
+    --exclude "k230-sdk-image-work/"
+    --exclude "fw_payload-sdk-opensbi.bin")
 if [ "$delete_extra" = "1" ]; then
     rsync_args+=(--delete)
 fi

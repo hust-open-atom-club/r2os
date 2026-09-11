@@ -378,6 +378,63 @@ class DeployArtifactsTest(unittest.TestCase):
         _assert_contains(text, "LABEL=boot", "fstab boot label")
         _assert_contains(text, "nofail", "fstab optional boot mount")
 
+    def test_export_protects_host_generated_artifacts(self):
+        """--clean mirrors the deploy directory but keeps our own outputs.
+
+        The SDK SD image, its work directory and the SDK OpenSBI payload only
+        exist in the export directory, so a plain "rsync --delete" removes them
+        on the next build.  They are kept only while the SDK image inputs
+        record still matches the current deploy output.
+        """
+        protected = (
+            "*.sdk-sdcard.img",
+            "k230-sdk-image-work/",
+            "fw_payload-sdk-opensbi.bin",
+        )
+        for script in ("scripts/yocto-export-deploy", "scripts/yocto-host-build"):
+            text = _read(REPO_ROOT / script)
+            for pattern in protected:
+                _assert_contains(text, pattern, f"{script} protects {pattern}")
+            _assert_contains(text, "*.sdk-sdcard.img.inputs",
+                             f"{script} keeps the SDK image inputs record")
+            _assert_contains(text, "rtt_source",
+                             f"{script} rejects non-default RTT images")
+            _assert_contains(text, "stale_reason",
+                             f"{script} invalidates stale derived artifacts")
+            _assert_contains(text, "for sdk_image in",
+                             f"{script} checks every preserved SDK image")
+            _assert_contains(text, 'source_file="$deploy', 
+                             f"{script} checks BitBake inputs against the deploy output")
+            self.assertNotIn(
+                "qemu/", text,
+                f"{script} must not keep the unpacked SD cache: it has no "
+                "independent freshness check",
+            )
+
+    def test_qemu_run_always_refreshes_the_unpacked_sd_cache(self):
+        """A cached raw image must not survive a restored replacement.
+
+        rsync -a preserves mtimes, so "[[ $sdimg -nt $raw_sd ]]" can keep an
+        uncompressed image built from a previous rootfs.
+        """
+        text = _read(REPO_ROOT / "scripts/k230-qemu-run")
+        self.assertNotIn('"$sdimg" -nt "$raw_sd"', text,
+                         "the SD cache must be regenerated unconditionally")
+        _assert_contains(text, 'gunzip -ck "$sdimg" > "$raw_sd"',
+                         "k230-qemu-run unpacks the SD image")
+
+    def test_sdk_image_records_and_checks_its_inputs(self):
+        """The SDK image must carry the provenance the exporters verify."""
+        text = _read(REPO_ROOT / "scripts/k230-sdk-image")
+        _assert_contains(text, 'manifest="$output.inputs"',
+                         "k230-sdk-image writes the inputs record")
+        _assert_contains(text, "payload_contains_kernel",
+                         "payload freshness is content based")
+        _assert_contains(text, "does not embed the current kernel",
+                         "k230-sdk-image warns about a stale payload")
+        _assert_contains(text, "rtt_source",
+                         "k230-sdk-image records which RTT firmware it used")
+
 
 # ---------------------------------------------------------------------------
 # QEMU boot-smoke tests (one per boot path)

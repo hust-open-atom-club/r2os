@@ -220,9 +220,10 @@ EOF
         raw_dir="$deploy_dir/qemu"
         mkdir -p "$raw_dir"
         raw_sd="$raw_dir/$(basename "${sdimg%.gz}")"
-        if [ ! -f "$raw_sd" ] || [ "$sdimg" -nt "$raw_sd" ]; then
-            gunzip -ck "$sdimg" > "$raw_sd"
-        fi
+        # Always regenerate: -a preserves mtimes, so a cache left over from a
+        # previous build can look newer than a restored replacement image and
+        # would make QEMU boot the previous rootfs.
+        gunzip -ck "$sdimg" > "$raw_sd"
         pad_sd_image_for_qemu "$raw_sd"
         sdimg="$raw_sd"
     fi
@@ -256,9 +257,8 @@ case "$mode" in
             raw_dir="$deploy_dir/qemu"
             mkdir -p "$raw_dir"
             raw_sd="$raw_dir/$(basename "${sdimg%.gz}")"
-            if [ ! -f "$raw_sd" ] || [ "$sdimg" -nt "$raw_sd" ]; then
-                gunzip -ck "$sdimg" > "$raw_sd"
-            fi
+            # Always regenerate: see the note above.
+            gunzip -ck "$sdimg" > "$raw_sd"
             pad_sd_image_for_qemu "$raw_sd"
             sdimg="$raw_sd"
         fi
