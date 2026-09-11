@@ -121,6 +121,19 @@ EOF
     fi
 }
 
+append_legacy_unpackdir_conf() {
+    # Scarthgap has no UNPACKDIR and unpacks directly under WORKDIR.  Wrynose
+    # defines it as ${WORKDIR}/sources and rejects ${WORKDIR} for every recipe,
+    # so the compatibility default must not live in a layer.conf.
+    if ! grep -q "# Added by scripts/yocto-host-build: legacy UNPACKDIR" conf/local.conf 2>/dev/null; then
+        cat >> conf/local.conf <<'EOF'
+
+# Added by scripts/yocto-host-build: legacy UNPACKDIR
+UNPACKDIR = "${WORKDIR}"
+EOF
+    fi
+}
+
 set +u
 source "$poky_dir/oe-init-build-env" "$build_dir" >/dev/null
 set -u
@@ -128,14 +141,17 @@ set -u
 mkdir -p conf
 append_local_conf
 
+poky_branch="$(git -C "$poky_dir" branch --show-current 2>/dev/null || true)"
+
 case "$skip_opensbi_patch" in
     1|yes|true|on)
         append_opensbi_compat_conf
+        append_legacy_unpackdir_conf
         ;;
     auto)
-        poky_branch="$(git -C "$poky_dir" branch --show-current 2>/dev/null || true)"
         if [ "$poky_branch" = "scarthgap" ]; then
             append_opensbi_compat_conf
+            append_legacy_unpackdir_conf
         fi
         ;;
     0|no|false|off|"")

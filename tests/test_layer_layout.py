@@ -131,6 +131,22 @@ class LayerDeclarationTest(unittest.TestCase):
                 node, reachable(node), f"dependency cycle at {node}"
             )
 
+    def test_layers_do_not_set_unpackdir(self):
+        # Wrynose defines UNPACKDIR as ${WORKDIR}/sources and insane.bbclass
+        # aborts every recipe whose UNPACKDIR resolves to WORKDIR.  A layer.conf
+        # assignment also reaches oe-core recipes, so no layer may set it; the
+        # scarthgap compatibility default lives in scripts/yocto-host-build.
+        for name, text in _layer_confs().items():
+            self.assertNotIn(
+                "UNPACKDIR", text,
+                f"{name}: layer.conf must not set UNPACKDIR",
+            )
+
+    def test_host_build_restores_legacy_unpackdir_for_scarthgap(self):
+        text = _read(REPO_ROOT / "scripts" / "yocto-host-build")
+        self.assertIn("append_legacy_unpackdir_conf", text)
+        self.assertIn('UNPACKDIR = "${WORKDIR}"', text)
+
     def test_every_layer_provides_recipes(self):
         for name in EXPECTED_LAYERS:
             recipes = (
