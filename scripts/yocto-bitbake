@@ -58,7 +58,11 @@ PARALLEL_MAKE ?= "-j ${YOCTO_PARALLEL_MAKE_JOBS:-12}"
 EOF
 fi
 
-export BB_SERVER_TIMEOUT="${BB_SERVER_TIMEOUT:--1}"
+# Keep the BitBake server warm between repeated builds, but never use -1: a
+# server started with -1 outlives the client forever, so every run that ends
+# without a clean "bitbake -m" leaves an orphan behind.  Fifteen minutes is
+# long enough for back-to-back builds and short enough to self-clean.
+export BB_SERVER_TIMEOUT="${BB_SERVER_TIMEOUT:-900}"
 
 bitbake "${bitbake_args[@]}"
 ' yocto-bitbake "$@"
