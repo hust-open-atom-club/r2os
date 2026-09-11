@@ -127,9 +127,25 @@ shell_scripts=(
     scripts/yocto-volumes
 )
 
+python_sources=(
+    scripts/gen-rtt-system
+    scripts/k230-qemu-smoke
+    tests/test_gen_rtt_system.py
+    tests/test_embedded_optimizations.py
+    tests/test_qemu_boot.py
+    tests/test_layer_layout.py
+)
+
+python_modules=(
+    tests.test_gen_rtt_system
+    tests.test_embedded_optimizations
+    tests.test_qemu_boot
+    tests.test_layer_layout
+)
+
 run_step "Shell syntax" bash -n "${shell_scripts[@]}"
-run_step "Python bytecode" python3 -m py_compile scripts/gen-rtt-system scripts/k230-qemu-smoke tests/test_gen_rtt_system.py tests/test_embedded_optimizations.py tests/test_qemu_boot.py
-run_step "Python unit tests" python3 -m unittest tests.test_gen_rtt_system tests.test_embedded_optimizations tests.test_qemu_boot
+run_step "Python bytecode" python3 -m py_compile "${python_sources[@]}"
+run_step "Python unit tests" python3 -m unittest "${python_modules[@]}"
 
 if ! command -v dtc >/dev/null 2>&1; then
     printf 'dtc not found; install device-tree-compiler to run DTS checks.\n' >&2
