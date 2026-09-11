@@ -21,6 +21,11 @@ import time
 PROMPT_RE = re.compile(r"(?:^|\r|\n)(?:root@[^\r\n#]*# |/ # )")
 DONE_MARKER = "__K230_SMOKE_DONE__"
 
+# Shell-wait defaults per boot path.  The SDK U-Boot path brings up both cores
+# and loads U-Boot plus the K230 firmware before Linux starts, so it needs a
+# wider margin than the direct initrd/sd boots.
+DEFAULT_TIMEOUTS = {"initrd": 120, "sd": 120, "uboot": 300}
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -30,13 +35,22 @@ def parse_args():
                         default="initrd")
     parser.add_argument("--deploy", default=os.environ.get(
         "K230_DEPLOY_DIR", "build-artifacts/k230-canmv"))
-    parser.add_argument("--timeout", type=int, default=int(os.environ.get(
-        "K230_QEMU_SMOKE_TIMEOUT", "120")))
+    parser.add_argument("--timeout", type=int, default=None,
+                        help="Seconds to wait for the guest shell. "
+                             "Defaults to 120s for initrd/sd and 300s for "
+                             "uboot, or K230_QEMU_SMOKE_TIMEOUT when set.")
     parser.add_argument("--command", default="fastfetch")
     parser.add_argument("--dropbear-no-host-key", action="store_true",
                         help="Rebuild a temporary SDK image from a rootfs without pre-generated Dropbear host keys before U-Boot smoke")
     parser.add_argument("--log-file")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.timeout is None:
+        # The SDK U-Boot path boots both cores and loads U-Boot plus the
+        # K230 firmware, so it needs a wider default margin than the direct
+        # Linux boots.
+        default = DEFAULT_TIMEOUTS[args.mode]
+        args.timeout = int(os.environ.get("K230_QEMU_SMOKE_TIMEOUT", default))
+    return args
 
 
 def _find_deploy_file(deploy: Path, *patterns: str) -> Path | None:

@@ -10,7 +10,7 @@ run_qemu_smoke=0
 run_qemu_smoke_all=0
 qemu_mode="initrd"
 deploy_dir="${K230_DEPLOY_DIR:-build-artifacts/k230-canmv}"
-qemu_timeout="${K230_QEMU_SMOKE_TIMEOUT:-120}"
+qemu_timeout="${K230_QEMU_SMOKE_TIMEOUT:-}"
 
 usage() {
     cat <<EOF
@@ -29,7 +29,8 @@ Optional checks:
   --qemu-smoke-all Boot all three QEMU paths in sequence: initrd, sd, uboot.
   --qemu-mode MODE QEMU smoke mode: initrd, sd, or uboot (default: initrd).
   --deploy DIR     Deploy directory for QEMU smoke.
-  --timeout SEC    QEMU smoke timeout in seconds (default: 120).
+  --timeout SEC    QEMU smoke timeout in seconds.
+                   Defaults: initrd/sd 120, uboot 300.
 EOF
 }
 
@@ -84,7 +85,10 @@ case "$qemu_mode" in
 esac
 
 case "$qemu_timeout" in
-    ''|*[!0-9]*)
+    "")
+        # Empty means "let the smoke script pick the per-mode default".
+        ;;
+    *[!0-9]*)
         printf 'Invalid --timeout value: %s\n' "$qemu_timeout" >&2
         exit 2
         ;;
@@ -99,11 +103,13 @@ run_step() {
 }
 
 run_qemu_smoke() {
-    "$script_dir/k230-qemu-smoke" \
-        --mode "$qemu_mode" \
-        --deploy "$deploy_dir" \
-        --timeout "$qemu_timeout" \
-        --command fastfetch
+    local args=(--mode "$qemu_mode" --deploy "$deploy_dir" --command fastfetch)
+
+    if [ -n "$qemu_timeout" ]; then
+        args+=(--timeout "$qemu_timeout")
+    fi
+
+    "$script_dir/k230-qemu-smoke" "${args[@]}"
 }
 
 cd "$repo_root"
