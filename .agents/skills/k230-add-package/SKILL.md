@@ -18,7 +18,8 @@ Add packages through the layer, not by hand-editing generated rootfs files.
 3. If a recipe already exists in enabled layers, only add the runtime package
    name to `recipes-core/packagegroups/packagegroup-k230-common.bb`.
 4. If no recipe exists, add a focused local recipe under the closest category:
-   - CLI/support tools: `recipes-support/<pn>/<pn>_<pv>.bb`
+   - CLI/support tools and application packages: put new recipes in the
+     `meta-r2os-apps` layer under `meta-r2os-apps/recipes-support/<pn>/<pn>_<pv>.bb`.
    - Core image/packagegroup changes: `recipes-core/...`
    - Kernel/BSP/firmware: use the existing BSP/kernel locations instead.
 5. Prefer source builds through Yocto classes when practical. Use a

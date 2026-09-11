@@ -160,7 +160,16 @@ add_layer_if_missing() {
 if [ -d "$meta_riscv" ]; then
     add_layer_if_missing "$meta_riscv"
 fi
-add_layer_if_missing "$repo_root"
+
+# R2 OS layers in dependency order.  "$repo_root" keeps working while the
+# repository root is still a layer during the split.
+for layer_path in \
+    "$repo_root/meta-r2os-apps" \
+    "$repo_root/meta-k230-bsp" \
+    "$repo_root" \
+    "$repo_root/meta-r2os-distro"; do
+    add_layer_if_missing "$layer_path"
+done
 
 if [ "$setup_only" -eq 1 ]; then
     printf 'Host Yocto environment ready: %s\n' "$build_dir"
