@@ -16,7 +16,8 @@
 │                           Configuration Layer                                │    bblayers.conf：列出参与解析的 layer
 │                                                                              │    local.conf：本地构建参数，例如 MACHINE/DISTRO/缓存路径
 │  meta-r2os-distro/conf/templates/default/                                    │    template：初始化 build 目录时使用的配置模板
-│  meta-r2os-distro/conf/fragments/                                            │    fragment：可复用的小段配置，用于组合构建参数
+│  meta-r2os-distro/conf/fragments/distro/                                    │
+│  meta-k230-bsp/conf/fragments/machine/                                      │    fragment：可复用的小段配置，用于组合构建参数
 │                                                                              │    DISTRO：发行版策略，决定 init、包格式和功能集合
 │  bblayers.conf.sample layer order:                                           │    MACHINE：目标硬件/板卡，选择内核、设备树和启动参数
 │    meta (oe-core) / meta-yocto-bsp / meta-poky                               │    oe-core/meta：OpenEmbedded Core，提供基础 recipe

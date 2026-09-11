@@ -177,6 +177,22 @@ class LayerOwnershipTest(unittest.TestCase):
             "every recipe must be claimed by a layer",
         )
 
+    def test_fragment_files_follow_layer_ownership(self):
+        # OE_FRAGMENTS entries such as "machine/k230-canmv" and "distro/r2os"
+        # are built-in fragments: oe-core sets
+        # OE_FRAGMENTS_BUILTIN = "machine:MACHINE distro:DISTRO", so BitBake
+        # expands them to plain variable assignments instead of requiring a
+        # fragment file.  These files therefore document the fragment and let
+        # tooling list it; they follow the layer that owns the setting.
+        self.assertTrue(
+            (REPO_ROOT / "meta-k230-bsp/conf/fragments/machine/k230-canmv.conf").is_file(),
+            "machine fragment belongs to the BSP layer",
+        )
+        self.assertTrue(
+            (REPO_ROOT / "meta-r2os-distro/conf/fragments/distro/r2os.conf").is_file(),
+            "distro fragment belongs to the distro layer",
+        )
+
     def test_bsp_layer_owns_machine_kernel_and_wic(self):
         bsp = REPO_ROOT / "meta-k230-bsp"
         self.assertTrue((bsp / "conf/machine/k230-canmv.conf").is_file())

@@ -8,9 +8,9 @@ Task-specific skills live under `.agents/skills/`.
 The Yocto metadata is split into three layers:
 
 - `meta-k230-bsp/`: K230 machine, Linux recipe, DTS, kernel config fragment,
-  OpenSBI integration, and the direct SD/WIC layout.
-- `meta-r2os-distro/`: distro policy, image, packagegroups, templates,
-  fragments, and userspace customization.
+  OpenSBI integration, the machine fragment, and the direct SD/WIC layout.
+- `meta-r2os-distro/`: distro policy, image, packagegroups, templates, the
+  distro fragment, and userspace customization.
 - `meta-r2os-apps/`: application recipes such as fastfetch and picoclaw.
 
 The repository root is not a layer; it holds shared tooling and documentation:
