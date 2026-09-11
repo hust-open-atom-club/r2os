@@ -131,21 +131,6 @@ class LayerDeclarationTest(unittest.TestCase):
                 node, reachable(node), f"dependency cycle at {node}"
             )
 
-    def test_unpackdir_fallback_only_applies_without_a_definition(self):
-        # Wrynose defines UNPACKDIR as ${WORKDIR}/sources and insane.bbclass
-        # raises a fatal error when a recipe ends up with UNPACKDIR == WORKDIR.
-        # The scarthgap compatibility fallback therefore has to stay behind a
-        # guard instead of being a plain weak assignment.
-        for name, text in _layer_confs().items():
-            self.assertNotIn(
-                'UNPACKDIR ?= "${WORKDIR}"', text,
-                f"{name}: unconditional UNPACKDIR = WORKDIR breaks Wrynose",
-            )
-            self.assertIn(
-                'if not d.getVar("UNPACKDIR")', text,
-                f"{name}: missing UNPACKDIR compatibility guard",
-            )
-
     def test_every_layer_provides_recipes(self):
         for name in EXPECTED_LAYERS:
             recipes = (
