@@ -121,6 +121,7 @@ shell_scripts=(
     scripts/k230-qemu-run
     scripts/k230-rtt-system-fetch
     scripts/k230-sdk-image
+    scripts/rustsbi-build
     scripts/yocto-bitbake
     scripts/yocto-build-image
     scripts/yocto-build-targets

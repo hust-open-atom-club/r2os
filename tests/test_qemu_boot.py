@@ -174,12 +174,12 @@ class MachineConfigTest(unittest.TestCase):
         _assert_contains(self.text, "Image k230-canmv.dtb",
                          "IMAGE_BOOT_FILES should include Image and DTB")
 
-    def test_uboot_entrypoint_matches_opensbi(self):
-        """U-Boot entrypoint must match OpenSBI FW_JUMP_ADDR."""
+    def test_uboot_entrypoint_matches_rustsbi_payload(self):
+        """U-Boot entrypoint must match the RustSBI Linux payload address."""
         _assert_contains(self.text, 'UBOOT_ENTRYPOINT = "0x08200000"',
                          "UBOOT_ENTRYPOINT should be 0x08200000")
-        _assert_contains(self.text, 'FW_JUMP_ADDR=0x08200000',
-                         "OpenSBI FW_JUMP_ADDR should match UBOOT_ENTRYPOINT")
+        _assert_contains(self.text, 'RUSTSBI_PAYLOAD_ADDRESS = "0x08200000"',
+                         "RustSBI payload address should match UBOOT_ENTRYPOINT")
 
 
 # ---------------------------------------------------------------------------
@@ -253,9 +253,11 @@ class SdkSdImageLayoutTest(unittest.TestCase):
         _assert_contains(self.text, "root_part_bytes",
                          "SDK image builder should size ext4 to partition")
 
-    def test_existing_sdk_opensbi_payload_is_preferred(self):
-        _assert_contains(self.text, "fw_payload-sdk-opensbi.bin",
-                         "SDK image builder should prefer K230 SDK OpenSBI")
+    def test_rustsbi_payload_is_required(self):
+        _assert_contains(self.text, 'fw_payload="$deploy_dir/fw_payload.bin"',
+                         "SDK image builder should consume the RustSBI payload")
+        _assert_contains(self.text, "rustsbi-build",
+                         "SDK image builder should explain how to build RustSBI")
 
     def test_generated_sdk_image_partition_names(self):
         gpt = self._sdk_gpt()
@@ -381,15 +383,14 @@ class DeployArtifactsTest(unittest.TestCase):
     def test_export_protects_host_generated_artifacts(self):
         """--clean mirrors the deploy directory but keeps our own outputs.
 
-        The SDK SD image, its work directory and the SDK OpenSBI payload only
-        exist in the export directory, so a plain "rsync --delete" removes them
-        on the next build.  They are kept only while the SDK image inputs
+        The SDK SD image and its work directory only exist in the export
+        directory, so a plain "rsync --delete" removes them on the next build.
+        They are kept only while the SDK image inputs
         record still matches the current deploy output.
         """
         protected = (
             "*.sdk-sdcard.img",
             "k230-sdk-image-work/",
-            "fw_payload-sdk-opensbi.bin",
         )
         for script in ("scripts/yocto-export-deploy", "scripts/yocto-host-build"):
             text = _read(REPO_ROOT / script)
@@ -430,7 +431,7 @@ class DeployArtifactsTest(unittest.TestCase):
                          "k230-sdk-image writes the inputs record")
         _assert_contains(text, "payload_contains_kernel",
                          "payload freshness is content based")
-        _assert_contains(text, "does not embed the current kernel",
+        _assert_contains(text, "does not contain the current Linux Image",
                          "k230-sdk-image warns about a stale payload")
         _assert_contains(text, "rtt_source",
                          "k230-sdk-image records which RTT firmware it used")
@@ -548,6 +549,10 @@ class _QemuSmokeBase:
             self.skipTest(
                 "SDK-compatible SD image not found; skipping optional U-Boot path"
             )
+        if self._mode != "uboot" and _find_deploy_file("rustsbi-dynamic.bin") is None:
+            self.skipTest(
+                "RustSBI dynamic firmware not found; run rustsbi-build first"
+            )
         if not Path(QEMU_BIN).is_file():
             self.skipTest(f"QEMU binary not found: {QEMU_BIN}")
         if not Path(DEPLOY_DIR).is_dir():
@@ -640,6 +645,7 @@ class QemuRunScriptTest(unittest.TestCase):
             for name in (
                 "Image",
                 "k230-canmv.dtb",
+                "rustsbi-dynamic.bin",
                 "r2os-image-k230-canmv.rootfs.cpio.gz",
                 "r2os-image-k230-canmv.rootfs.wic",
                 "r2os-image-k230-canmv.sdk-sdcard.img",
@@ -683,6 +689,10 @@ class QemuRunScriptTest(unittest.TestCase):
         args = self._fake_qemu_args("--initrd")
         self._assert_arg_value(args, "-machine", "k230-canmv")
         self._assert_arg_value(args, "-smp", "1")
+        self.assertIn("-bios", args)
+        self.assertTrue(args[args.index("-bios") + 1].endswith(
+            "rustsbi-dynamic.bin"
+        ))
         self.assertNotIn("k230,boot-both-cores=on", args)
 
     def test_sd_mode_launches_only_small_core(self):
