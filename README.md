@@ -4,24 +4,39 @@
 
 **A small, Rust-first Linux distribution for the Canaan CanMV-K230.**
 
-[Quick start](#-quick-start) · [Architecture](#-architecture) · [Details](#-details)
+[Quick start](#quick-start) · [Architecture](#architecture) · [Details](#details)
 
 </div>
 
-| 🧠 Target | 🧩 Build | ⚙️ Firmware | 📟 Userspace |
-| --- | --- | --- | --- |
-| RISC-V 64 | Yocto/OpenEmbedded | RustSBI | BusyBox + Dropbear |
+<table align="center">
+  <tr>
+    <th>Target</th>
+    <th>Build</th>
+    <th>Firmware</th>
+    <th>Userspace</th>
+  </tr>
+  <tr>
+    <td>RISC-V 64</td>
+    <td>Yocto/OpenEmbedded</td>
+    <td>RustSBI</td>
+    <td>BusyBox + Dropbear</td>
+  </tr>
+</table>
 
-> Current focus: reproducible Linux bring-up on the K230 QEMU model. KPU,
-> camera, AI2D, and full multimedia support still require hardware or SDK-side
-> integration.
+<p align="center">
+  Current focus: reproducible Linux bring-up on the K230 QEMU model.<br />
+  KPU, camera, AI2D, and full multimedia support still require hardware or
+  SDK-side integration.
+</p>
 
-## 🖥️ Boot snapshot
+<h2 align="center">Boot snapshot</h2>
 
-After booting, the image identifies itself roughly like this. The left column
-comes from [`r2os-logo.txt`](meta-r2os-apps/recipes-support/fastfetch/files/r2os-logo.txt);
-the Fastfetch color placeholders are removed here so the character layout is
-visible in plain Markdown.
+<p align="center">
+  After booting, the image identifies itself roughly like this.<br />
+  The left column comes from
+  <a href="meta-r2os-apps/recipes-support/fastfetch/files/r2os-logo.txt"><code>r2os-logo.txt</code></a>;
+  Fastfetch color placeholders are removed here for plain Markdown.
+</p>
 
 ```text
 root@k230-canmv:~# fastfetch
@@ -43,7 +58,7 @@ root@k230-canmv:~# fastfetch
 
 Uptime, memory, disk usage, and the IP address are runtime values.
 
-## 🚀 Quick start
+## Quick start
 
 From the repository root:
 
@@ -57,7 +72,7 @@ make check             # Run static checks and unit tests
 
 The exported artifacts live under `build-artifacts/k230-canmv/`.
 
-## 🧭 Architecture
+## Architecture
 
 R² OS is split into three layers:
 
@@ -70,22 +85,22 @@ R² OS is split into three layers:
 The boot paths share the same Linux kernel and userspace:
 
 ```text
-Direct initrd  ──▶ RustSBI dynamic ──▶ Linux ──▶ initramfs
-Direct WIC     ──▶ RustSBI dynamic ──▶ Linux ──▶ /dev/mmcblk1p2
-SDK U-Boot     ──▶ RustSBI payload ──▶ Linux ──▶ /dev/mmcblk1p3
+Direct initrd  -> RustSBI dynamic -> Linux -> initramfs
+Direct WIC     -> RustSBI dynamic -> Linux -> /dev/mmcblk1p2
+SDK U-Boot     -> RustSBI payload -> Linux -> /dev/mmcblk1p3
 ```
 
 `scripts/rustsbi-build` turns the exported kernel and device tree into the
 dynamic and payload firmware used by these paths.
 
-## ✅ Current scope
+## Current scope
 
 - QEMU initramfs, direct WIC/SD, and SDK U-Boot paths reach a root shell.
 - Direct WIC uses `/dev/mmcblk1p2`; the SDK GPT image uses `/dev/mmcblk1p3`.
 - KPU, camera, AI2D, and full multimedia validation still require hardware or
   SDK-side integration.
 
-## 🛠️ Details
+## Details
 
 <details>
 <summary>Build environment</summary>
@@ -101,7 +116,7 @@ For the full memory map, layer wiring, and boot diagrams, see
 [`ARCHITECTURE.md`](ARCHITECTURE.md). Individual scripts expose their options
 through `--help`.
 
-## 📚 More
+## More
 
 - [RISC-V hardware matrix](docs/riscv-hardware.md)
 - [K230 architecture and boot diagrams](ARCHITECTURE.md)
