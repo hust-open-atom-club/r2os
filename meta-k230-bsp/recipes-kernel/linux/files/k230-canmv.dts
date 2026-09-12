@@ -51,16 +51,21 @@
         };
     };
 
-    memory@8200000 {
+    memory@8000000 {
         device_type = "memory";
         /*
          * Match K230 SDK memory layout:
          *   0x00000000-0x001fffff  reserved (bootrom, 2 MiB)
          *   0x00200000-0x07ffffff  RTT big-core firmware (126 MiB)
-         *   0x08000000-0x081fffff  OpenSBI (2 MiB, runtime-reserved)
+         *   0x08000000-0x081fffff  RustSBI (2 MiB, runtime-reserved)
          *   0x08200000-0x7fffffff  Linux (1918 MiB)
+         *
+         * Describe the complete Linux-side DRAM bank here. RustSBI must
+         * see its own image inside a RAM bank while it initializes PMP;
+         * RustSBI adds the 0x08000000 firmware range to reserved-memory
+         * before handing this tree to Linux.
          */
-        reg = <0x0 0x08200000 0x0 0x77e00000>;
+        reg = <0x0 0x08000000 0x0 0x78000000>;
     };
 
     qemu_finisher: test@100000 {

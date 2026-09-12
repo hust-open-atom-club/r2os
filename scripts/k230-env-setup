@@ -91,6 +91,11 @@ check_tools() {
 }
 
 check_tools "${common_tools[@]}" "${qemu_tools[@]}"
+check_tools rustup
+if ! command -v rust-objcopy >/dev/null 2>&1 \
+    && [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/rust-objcopy" ]; then
+    missing_tools+=("rust-objcopy (cargo-binutils)")
+fi
 if [ "$selected_backend" = "host" ]; then
     check_tools "${host_tools[@]}"
 fi
@@ -174,7 +179,6 @@ if [ "$selected_backend" = "host" ]; then
     YOCTO_META_RISCV="$meta_riscv_dir" \
     YOCTO_DOWNLOADS="${YOCTO_DOWNLOADS:-}" \
     YOCTO_SSTATE="${YOCTO_SSTATE:-}" \
-    YOCTO_HOST_SKIP_OPENSBI_PATCH="${YOCTO_HOST_SKIP_OPENSBI_PATCH:-auto}" \
     "$repo_root/scripts/yocto-host-build" --setup-only
 else
     if [ "$docker_available" -ne 1 ]; then

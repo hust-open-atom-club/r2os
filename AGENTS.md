@@ -8,7 +8,7 @@ Task-specific skills live under `.agents/skills/`.
 The Yocto metadata is split into three layers:
 
 - `meta-k230-bsp/`: K230 machine, Linux recipe, DTS, kernel config fragment,
-  OpenSBI integration, the machine fragment, and the direct SD/WIC layout.
+  RustSBI layout, the machine fragment, and the direct SD/WIC layout.
 - `meta-r2os-distro/`: distro policy, image, packagegroups, templates, the
   distro fragment, and userspace customization.
 - `meta-r2os-apps/`: application recipes such as fastfetch and picoclaw.
@@ -34,7 +34,7 @@ Load the matching skill before starting common work:
 - `k230-qemu-run`: choose and run SDK U-Boot, direct WIC, or initramfs boot.
 - `k230-test`: static checks and runtime smoke tests.
 - `k230-docker`: Dockerfile, entrypoint, volumes, and container shell workflow.
-- `k230-config-explain`: explain machine, distro, kernel, DTS, WIC, and OpenSBI
+- `k230-config-explain`: explain machine, distro, kernel, DTS, WIC, and SBI firmware
   configuration.
 - `yocto-commit-message`: write, review, split, or rewrite commits using
   Yocto/OpenEmbedded contribution conventions.

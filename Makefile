@@ -30,7 +30,6 @@ YOCTO_META_RISCV_URL ?= https://github.com/riscv/meta-riscv.git
 YOCTO_META_RISCV_BRANCH ?= scarthgap
 YOCTO_DOWNLOADS ?=
 YOCTO_SSTATE ?=
-YOCTO_HOST_SKIP_OPENSBI_PATCH ?= auto
 DOCKER ?= docker
 
 export YOCTO_BB_THREADS
@@ -80,7 +79,6 @@ k230-env:
 	YOCTO_BUILD_DIR="$(YOCTO_BUILD_DIR)" \
 	YOCTO_DOWNLOADS="$(YOCTO_DOWNLOADS)" \
 	YOCTO_SSTATE="$(YOCTO_SSTATE)" \
-	YOCTO_HOST_SKIP_OPENSBI_PATCH="$(YOCTO_HOST_SKIP_OPENSBI_PATCH)" \
 	DOCKER="$(DOCKER)" \
 	./scripts/k230-env-setup --backend "$(YOCTO_BACKEND)"
 
@@ -96,7 +94,6 @@ env-install:
 	YOCTO_BUILD_DIR="$(YOCTO_BUILD_DIR)" \
 	YOCTO_DOWNLOADS="$(YOCTO_DOWNLOADS)" \
 	YOCTO_SSTATE="$(YOCTO_SSTATE)" \
-	YOCTO_HOST_SKIP_OPENSBI_PATCH="$(YOCTO_HOST_SKIP_OPENSBI_PATCH)" \
 	DOCKER="$(DOCKER)" \
 	./scripts/k230-env-setup --backend "$(YOCTO_BACKEND)" --install-system-deps
 
@@ -117,7 +114,6 @@ yocto-init: k230-env
 		YOCTO_META_RISCV="$(YOCTO_META_RISCV)" \
 		YOCTO_DOWNLOADS="$(YOCTO_DOWNLOADS)" \
 		YOCTO_SSTATE="$(YOCTO_SSTATE)" \
-		YOCTO_HOST_SKIP_OPENSBI_PATCH="$(YOCTO_HOST_SKIP_OPENSBI_PATCH)" \
 		./scripts/yocto-host-build --setup-only; \
 	else \
 		./scripts/yocto-init; \
@@ -151,7 +147,6 @@ k230-build: k230-setup
 		YOCTO_META_RISCV="$(YOCTO_META_RISCV)" \
 		YOCTO_DOWNLOADS="$(YOCTO_DOWNLOADS)" \
 		YOCTO_SSTATE="$(YOCTO_SSTATE)" \
-		YOCTO_HOST_SKIP_OPENSBI_PATCH="$(YOCTO_HOST_SKIP_OPENSBI_PATCH)" \
 		./scripts/yocto-host-build --image "$(IMAGE_TARGET)" --deploy "$(DEPLOY_DIR)"; \
 	else \
 		./scripts/yocto-bitbake "$(IMAGE_TARGET)"; \

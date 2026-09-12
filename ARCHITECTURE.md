@@ -4,7 +4,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐    术语说明（Yocto 相关）
 │                          Yocto / Poky (Wrynose)                              │    Yocto：嵌入式 Linux 构建体系，不是单一发行版
 │                                                                              │    Poky：Yocto 官方参考发行版和默认构建基础
-│  meta-k230-bsp      k230       prio 6  machine/kernel/DTS/cfg/OpenSBI/WIC    │    Layer：元数据层，包含 recipe、配置和 class
+│  meta-k230-bsp      k230       prio 6  machine/kernel/DTS/cfg/RustSBI/WIC   │    Layer：元数据层，包含 recipe、配置和 class
 │  meta-r2os-distro   r2os       prio 7  distro/image/packagegroups/templates  │    BBFILE_COLLECTIONS：本层对外声明的集合名
 │  meta-r2os-apps     r2os-apps  prio 6  fastfetch/picoclaw                    │    BBFILE_PRIORITY：同 PN 重复时高优先级胜出
 │  LAYERDEPENDS: r2os -> core, k230, r2os-apps                                 │    LAYERDEPENDS：声明层之间的依赖关系
@@ -25,7 +25,7 @@
 │                                                                              │    meta-yocto-bsp：Yocto 示例 BSP layer
 │  meta-k230-bsp/conf/machine/k230-canmv.conf                                  │    conf/machine：定义板卡、CPU 架构、镜像类型和启动方式
 │    SoC: Canaan K230, RISC-V 64 (rv64imafdc), T-HEAD C908 x 1 core            │    conf/distro：定义发行版策略、包格式和功能开关
-│    Kernel: linux-k230 6.18.28,  Firmware: OpenSBI (generic)                  │    IMAGE_FEATURES：镜像级功能，例如 SSH、空密码、包管理
+│    Kernel: linux-k230 6.18.28,  Firmware: RustSBI Prototyper                 │    IMAGE_FEATURES：镜像级功能，例如 SSH、空密码、包管理
 │    Image Types: cpio.gz / ext4 / wic.gz / tar.zst                            │    DISTRO_FEATURES：发行版能力集合，例如 ipv4、nfs、pam
 │    QEMU: -machine k230-canmv, -smp 1, -m 2G, -nographic, ssh 127.0.0.1:10022 │    PACKAGE_CLASSES/ipk：选择生成 .ipk 软件包
 │                                                                              │    RootFS：镜像中的根文件系统内容
@@ -98,19 +98,19 @@
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                              Boot Flow                                       │
 │                                                                              │
-│   QEMU                 U-Boot                    OpenSBI                     │
+│   QEMU                 U-Boot                    RustSBI                     │
 │  ┌──────────┐    ┌─────────────────┐    ┌──────────────────────┐             │
-│  │ -machine │    │ External K230   │    │ PLAT = generic       │             │
-│  │   k230   │--->│ SDK U-Boot      │--->│ FW_TEXT_START =      │             │
+│  │ -machine │    │ External K230   │    │ RustSBI Prototyper   │             │
+│  │   k230   │--->│ SDK U-Boot      │--->│ LINK_START =         │             │
 │  │ -m 2G    │    │ binary from     │    │   0x0800_0000        │             │
-│  │ -smp 1   │    │ prebuilt/k230-  │    │ FW_JUMP_ADDR  =      │             │
+│  │ -smp 1   │    │ prebuilt/k230-  │    │ PAYLOAD_ADDRESS =     │             │
 │  │ -nic ... │    │ sdk/riscv-      │    │   0x0820_0000        │             │
-│  └──────────┘    │ nomtee/u-boot   │    │ FW_FDT_ADDR   =      │             │
+│  └──────────┘    │ nomtee/u-boot   │    │ FDT is external       │             │
 │                  └────────┬────────┘    │   0x0A00_0000        │             │
 │                           │             └──────────┬───────────┘             │
 │                           │                        │                         │
 │                           v                        v                         │
-│                     Loads OpenSBI          Jumps to Linux Kernel             │
+│                     Loads RustSBI          Jumps to Linux Kernel             │
 │                     from SD image          at 0x0820_0000                    │
 │                                                      │                       │
 │                          ┌───────────────────────────┘                       │
@@ -138,10 +138,10 @@
 │      └────────────┘    └────────────┘    └────────────────┘                  │
 │                                                                              │
 │  -- Direct Boot (--initrd) --                                                │
-│   QEMU -> OpenSBI -> Linux Kernel (initrd cpio.gz) -> BusyBox init           │
+│   QEMU -> RustSBI -> Linux Kernel (initrd cpio.gz) -> BusyBox init            │
 │                                                                              │
 │  -- SD + U-Boot Boot (--sd --uboot) --                                       │
-│   QEMU -> U-Boot (ext SDK) -> OpenSBI -> Linux Kernel -> BusyBox init        │
+│   QEMU -> U-Boot (ext SDK) -> RustSBI -> Linux Kernel -> BusyBox init         │
 └──────────────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────────────────────┐

@@ -1,0 +1,17 @@
+# RustSBI Prototyper layout for the K230 small-core boot path.
+#
+# The first 2 MiB are reserved for machine-mode firmware and the embedded
+# Linux payload starts at the address used by the K230 SDK/U-Boot handoff.
+num_hart_max = 2
+stack_size_per_hart = 16384
+heap_size = 0x15000
+page_size = 4096
+log_level = "INFO"
+link_start_address = 0x08000000
+payload_address = 0x08200000
+jump_address = 0x08200000
+tlb_flush_limit = 16384
+
+[[next_addr]]
+start = 0x08200000
+end = 0x80000000

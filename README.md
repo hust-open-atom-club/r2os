@@ -14,7 +14,7 @@ make qemu
 ```
 
 This command builds the SDK-free Yocto image, prepares the K230-capable QEMU,
-and boots the image with an initramfs.
+builds the pinned RustSBI firmware, and boots the image with an initramfs.
 
 To boot the direct WIC/SD image instead:
 
@@ -34,6 +34,7 @@ build-artifacts/k230-canmv/
 make env              # Check and bootstrap the local build environment
 make env-install      # Install missing host tools when needed
 make k230-build       # Build the Yocto image and export artifacts
+./scripts/rustsbi-build --deploy build-artifacts/k230-canmv  # Rebuild firmware only
 make qemu-build       # Build processmission/qemu, branch devel
 make k230-qemu        # Build and boot with initramfs
 make k230-qemu-sd     # Build and boot the direct WIC image
@@ -66,6 +67,10 @@ When host repositories are missing, `make env` downloads the configured Poky
 and `meta-riscv` branches and initializes the host build directory. The
 `env-install` target is the explicit opt-in for system package installation.
 
+RustSBI is built on the host after deploy export. The host needs `rustup`, the
+`nightly-2026-05-11` toolchain with `rust-src` and the RISC-V target, plus
+`rust-objcopy` from `cargo-binutils`.
+
 ## QEMU and SDK Scope
 
 QEMU is built from [processmission/qemu](https://github.com/processmission/qemu),
@@ -86,7 +91,7 @@ multimedia validation still require hardware or SDK-side integration.
 ## Project Layout
 
 ```text
-meta-k230-bsp/        Machine, Linux recipe, DTS, OpenSBI, and WIC layout
+meta-k230-bsp/        Machine, Linux recipe, DTS, RustSBI config, and WIC layout
 meta-r2os-distro/     Distro policy, image, packagegroups, userspace
 meta-r2os-apps/       Application recipes
 scripts/              Build, export, image, and QEMU helpers

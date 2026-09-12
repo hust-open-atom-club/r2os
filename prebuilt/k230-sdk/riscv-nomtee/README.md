@@ -7,12 +7,9 @@ without depending on `~/k230-project/images/riscv-nomtee/u-boot`. The binary is
 not covered by this layer's `COPYING.MIT`; keep its provenance tied to the K230
 SDK source and license terms.
 
-The SDK-compatible Yocto SD image still requires a K230-tuned OpenSBI payload.
-When available, `scripts/k230-sdk-image` builds that payload from:
-
-```text
-~/k230-project/sdk/k230_sdk/src/common/opensbi
-```
+The SDK-compatible Yocto SD image uses the RustSBI payload generated from the
+current Yocto kernel and DTB. `scripts/yocto-export-deploy` runs
+`scripts/rustsbi-build` before the SDK image is assembled.
 
 ## K230 SDK RTT System Binary (Big-Core Firmware)
 

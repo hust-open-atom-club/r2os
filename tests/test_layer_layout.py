@@ -213,7 +213,9 @@ class LayerOwnershipTest(unittest.TestCase):
         bsp = REPO_ROOT / "meta-k230-bsp"
         self.assertTrue((bsp / "conf/machine/k230-canmv.conf").is_file())
         self.assertTrue((bsp / "recipes-kernel/linux/linux-k230_6.18.bb").is_file())
-        self.assertTrue((bsp / "recipes-bsp/opensbi/opensbi_%.bbappend").is_file())
+        self.assertTrue(
+            (bsp / "recipes-bsp/rustsbi/files/k230-canmv.toml").is_file()
+        )
         self.assertTrue((bsp / "wic/k230-canmv-sdimage.wks").is_file())
 
         text = _layer_confs()["meta-k230-bsp"]

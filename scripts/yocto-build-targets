@@ -17,8 +17,9 @@ Usage: $0 [OPTIONS] TARGET [TARGET...]
 Build one or more BitBake targets, rebuild the K230 image, export deploy
 artifacts, and generate the SDK-compatible SD image.
 
-Targets are BitBake targets such as fastfetch, linux-k230, opensbi, or
-packagegroup-k230-common. Convenience aliases:
+Targets are BitBake targets such as fastfetch, linux-k230, or
+packagegroup-k230-common. RustSBI is generated from the exported kernel and
+DTB by scripts/rustsbi-build. Convenience aliases:
   kernel, linux  -> linux-k230
   image          -> the selected image target
 
