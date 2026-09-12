@@ -186,6 +186,7 @@ dtb="$(first_existing "$deploy_dir/canaan/k230-canmv.dtb" "$deploy_dir/k230-canm
 initrd="$(first_existing "$deploy_dir/r2os-image-k230-canmv.rootfs.cpio.gz" "$deploy_dir"/*.rootfs.cpio.gz 2>/dev/null || true)"
 sdimg="$(first_existing "$deploy_dir/r2os-image-k230-canmv.rootfs.wic" "$deploy_dir/r2os-image-k230-canmv.rootfs.wic.gz" "$deploy_dir"/*.rootfs.wic "$deploy_dir"/*.rootfs.wic.gz 2>/dev/null || true)"
 sdk_sdimg_auto="$(first_existing "$deploy_dir/r2os-image-k230-canmv.sdk-sdcard.img" "$deploy_dir"/*.sdk-sdcard.img 2>/dev/null || true)"
+rustsbi_dynamic="$(first_existing "$deploy_dir/rustsbi-dynamic.bin" "$deploy_dir/fw_dynamic-rustsbi.bin" 2>/dev/null || true)"
 
 qemu_exec() {
     if [ "$use_net" -eq 1 ]; then
@@ -237,6 +238,16 @@ if [ -z "$kernel" ] || [ -z "$dtb" ]; then
     exit 2
 fi
 
+if [ -z "$rustsbi_dynamic" ] || [ ! -s "$rustsbi_dynamic" ]; then
+    cat >&2 <<EOF
+RustSBI dynamic firmware not found in $deploy_dir.
+
+Build it from the current Yocto deploy artifacts first:
+  ./scripts/rustsbi-build --deploy "$deploy_dir"
+EOF
+    exit 2
+fi
+
 case "$mode" in
     initrd)
         if [ -z "$initrd" ]; then
@@ -245,6 +256,7 @@ case "$mode" in
         fi
         append="console=ttyS0,115200 earlycon=sbi rdinit=/sbin/init ${append_extra}"
         qemu_exec "${direct_machine_args[@]}" \
+            -bios "$rustsbi_dynamic" \
             -kernel "$kernel" -dtb "$dtb" -initrd "$initrd" \
             -append "$append"
         ;;
@@ -265,6 +277,7 @@ case "$mode" in
         append="console=ttyS0,115200 earlycon=sbi root=/dev/mmcblk1p2 rootwait rw ${append_extra}"
         sd_drive="$(sd_drive_arg "$sdimg")"
         qemu_exec "${direct_machine_args[@]}" \
+            -bios "$rustsbi_dynamic" \
             -kernel "$kernel" -dtb "$dtb" \
             -drive "$sd_drive" \
             -append "$append"

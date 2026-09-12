@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+deploy_dir="${K230_DEPLOY_DIR:-build-artifacts/k230-canmv}"
+source_dir="${K230_RUSTSBI_SOURCE:-$repo_root/build-artifacts/rustsbi-src}"
+rustsbi_repo="${K230_RUSTSBI_REPO:-https://github.com/rustsbi/rustsbi.git}"
+rustsbi_rev="${K230_RUSTSBI_REV:-44d0686332bd58e149691d3d85db367825d1bd0b}"
+rustsbi_toolchain="${K230_RUSTSBI_TOOLCHAIN:-nightly-2026-05-11}"
+rustsbi_jobs="${K230_RUSTSBI_JOBS:-${YOCTO_PARALLEL_MAKE_JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || getconf _NPROCESSORS_ONLN || printf '4')}}"
+config_file="$repo_root/meta-k230-bsp/recipes-bsp/rustsbi/files/k230-canmv.toml"
+
+usage() {
+    cat <<EOF
+Usage: $0 [--deploy DIR] [--source DIR]
+
+Build the pinned RustSBI Prototyper for the K230 Linux deploy artifacts.
+
+Inputs:
+  Image             Linux kernel payload
+  k230-canmv.dtb   K230 hardware description
+
+Outputs:
+  rustsbi-dynamic.bin  firmware for direct QEMU boot
+  fw_payload.bin      RustSBI + Linux payload for SDK/U-Boot boot
+
+Environment:
+  K230_RUSTSBI_SOURCE     source checkout (default: build-artifacts/rustsbi-src)
+  K230_RUSTSBI_REV        pinned RustSBI commit
+  K230_RUSTSBI_TOOLCHAIN  rustup toolchain (default: nightly-2026-05-11)
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --deploy)
+            deploy_dir="$2"
+            shift 2
+            ;;
+        --source)
+            source_dir="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+case "$deploy_dir" in
+    /*) ;;
+    *) deploy_dir="$PWD/$deploy_dir" ;;
+esac
+
+case "$source_dir" in
+    /*) ;;
+    *) source_dir="$repo_root/$source_dir" ;;
+esac
+
+deploy_dir="$(cd "$deploy_dir" && pwd)"
+kernel="$deploy_dir/Image"
+dtb="$deploy_dir/k230-canmv.dtb"
+
+if [ ! -f "$kernel" ]; then
+    kernel="$(find "$deploy_dir" -maxdepth 1 -type f -name 'Image--*.bin' -print -quit)"
+fi
+if [ ! -f "$dtb" ]; then
+    dtb="$(find "$deploy_dir" -maxdepth 2 -type f -name 'k230-canmv*.dtb' -print -quit)"
+fi
+
+if [ -z "${kernel:-}" ] || [ ! -f "$kernel" ] || [ -z "${dtb:-}" ] || [ ! -f "$dtb" ]; then
+    cat >&2 <<EOF
+Missing RustSBI inputs in $deploy_dir.
+
+Required:
+  Image (or Image--*.bin)
+  k230-canmv.dtb
+
+Export the Yocto deploy directory first:
+  ./scripts/yocto-export-deploy
+EOF
+    exit 2
+fi
+
+mkdir -p "$(dirname "$source_dir")"
+
+if [ ! -d "$source_dir/.git" ]; then
+    git clone --filter=blob:none --no-checkout "$rustsbi_repo" "$source_dir"
+fi
+
+if ! git -C "$source_dir" cat-file -e "$rustsbi_rev^{commit}" 2>/dev/null; then
+    git -C "$source_dir" fetch --depth 1 origin "$rustsbi_rev"
+fi
+
+current_rev="$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)"
+if [ "$current_rev" != "$rustsbi_rev" ] || [ ! -f "$source_dir/Cargo.toml" ]; then
+    git -C "$source_dir" checkout --detach "$rustsbi_rev"
+fi
+
+if ! command -v rustup >/dev/null 2>&1; then
+    printf 'rustup is required to build RustSBI (%s).\n' "$rustsbi_toolchain" >&2
+    exit 2
+fi
+
+rustc_path="$(rustup which rustc --toolchain "$rustsbi_toolchain" 2>/dev/null || true)"
+if [ -z "$rustc_path" ]; then
+    cat >&2 <<EOF
+Rust toolchain not installed: $rustsbi_toolchain
+
+Install it with:
+  rustup toolchain install $rustsbi_toolchain --component rust-src llvm-tools-preview
+  rustup target add --toolchain $rustsbi_toolchain riscv64gc-unknown-none-elf
+EOF
+    exit 2
+fi
+
+rust_bin="$(dirname "$rustc_path")"
+cargo_bin_dir="${CARGO_HOME:-$HOME/.cargo}/bin"
+export PATH="$rust_bin:$cargo_bin_dir:$PATH"
+
+if ! command -v rust-objcopy >/dev/null 2>&1; then
+    cat >&2 <<EOF
+rust-objcopy is required to convert RustSBI ELF files.
+
+Install it with:
+  cargo install --locked cargo-binutils --version 0.4.0
+EOF
+    exit 2
+fi
+
+if ! rustup target list --installed --toolchain "$rustsbi_toolchain" \
+    | grep -Fxq 'riscv64gc-unknown-none-elf'; then
+    rustup target add --toolchain "$rustsbi_toolchain" riscv64gc-unknown-none-elf
+fi
+
+build_rustsbi() {
+    local args=(--config-file "$config_file")
+
+    if [ "$#" -gt 0 ] && [ "$1" = "--fdt" ]; then
+        args+=(--fdt "$2")
+        shift 2
+    fi
+    args+=("$@")
+
+    (
+        cd "$source_dir"
+        CARGO_BUILD_JOBS="$rustsbi_jobs" \
+            cargo prototyper build "${args[@]}"
+    )
+}
+
+printf 'Building RustSBI dynamic firmware (%s)\n' "$rustsbi_rev"
+build_rustsbi
+
+printf 'Building RustSBI payload firmware with %s and %s\n' \
+    "$(basename "$kernel")" "$(basename "$dtb")"
+# Leave the DTB external for payload mode.  Direct QEMU passes its DTB in a1;
+# SDK U-Boot supplies a second DTB with root=/dev/mmcblk1p3.
+build_rustsbi payload "$kernel"
+
+target_dir="$source_dir/target/riscv64gc-unknown-none-elf/release"
+dynamic_bin="$target_dir/rustsbi-prototyper-dynamic.bin"
+payload_bin="$target_dir/rustsbi-prototyper-payload.bin"
+dynamic_elf="$target_dir/rustsbi-prototyper-dynamic.elf"
+payload_elf="$target_dir/rustsbi-prototyper-payload.elf"
+
+for artifact in "$dynamic_bin" "$payload_bin" "$dynamic_elf" "$payload_elf"; do
+    if [ ! -s "$artifact" ]; then
+        printf 'RustSBI artifact missing or empty: %s\n' "$artifact" >&2
+        exit 1
+    fi
+done
+
+payload_contains_kernel() {
+    python3 - "$kernel" "$payload_bin" <<'PY'
+import pathlib
+import sys
+
+kernel = pathlib.Path(sys.argv[1]).read_bytes()
+payload = pathlib.Path(sys.argv[2]).read_bytes()
+sys.exit(0 if kernel and kernel in payload else 1)
+PY
+}
+
+if ! payload_contains_kernel; then
+    printf 'RustSBI payload does not contain the current Linux Image.\n' >&2
+    exit 1
+fi
+
+cp -f "$dynamic_bin" "$deploy_dir/rustsbi-dynamic.bin"
+cp -f "$dynamic_elf" "$deploy_dir/rustsbi-dynamic.elf"
+cp -f "$payload_bin" "$deploy_dir/fw_payload.bin"
+cp -f "$payload_elf" "$deploy_dir/fw_payload.elf"
+
+printf 'RustSBI dynamic: %s\n' "$deploy_dir/rustsbi-dynamic.bin"
+printf 'RustSBI payload: %s\n' "$deploy_dir/fw_payload.bin"

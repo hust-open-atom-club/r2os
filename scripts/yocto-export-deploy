@@ -2,6 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
 dest="build-artifacts/k230-canmv"
 dest_set=0
 delete_mode="auto"
@@ -66,7 +67,7 @@ case "$delete_mode:$dest" in
         ;;
 esac
 
-exec "$script_dir/yocto-shell" bash -lc '
+"$script_dir/yocto-shell" bash -lc '
 set -euo pipefail
 
 dest="$1"
@@ -84,10 +85,10 @@ fi
 
 mkdir -p "/work/src/$dest"
 
-# The SDK image, its work directory, the unpacked SD image cache used by
-# k230-qemu-run and the SDK OpenSBI payload only exist in the export directory,
-# so a mirroring rsync must not delete them.  Keep them only while the SDK
-# image provably comes from the current inputs: k230-sdk-image writes an
+# The SDK image, its work directory and the unpacked SD image cache used by
+# k230-qemu-run only exist in the export directory, so a mirroring rsync must
+# not delete them.  Keep them only while the SDK image provably comes from the
+# current inputs: k230-sdk-image writes an
 # "<image>.inputs" record holding the hash of every input it used, and keeping
 # an image whose inputs moved on would let the smoke tests validate a previous
 # build.  A missing record counts as unknown provenance and is rebuilt too.
@@ -156,19 +157,30 @@ done
 if [ -n "$stale_reason" ]; then
     rm -rf "/work/src/$dest"/*.sdk-sdcard.img \
         "/work/src/$dest"/*.sdk-sdcard.img.inputs \
-        "/work/src/$dest"/k230-sdk-image-work \
-        "/work/src/$dest"/fw_payload-sdk-opensbi.bin
+        "/work/src/$dest"/k230-sdk-image-work
     printf "Invalidated the derived SDK artifacts: %s\n" "$stale_reason" >&2
 fi
 
 rsync_args=(-a
     --exclude "*.sdk-sdcard.img"
     --exclude "*.sdk-sdcard.img.inputs"
-    --exclude "k230-sdk-image-work/"
-    --exclude "fw_payload-sdk-opensbi.bin")
+    --exclude "k230-sdk-image-work/")
 if [ "$delete_extra" = "1" ]; then
     rsync_args+=(--delete)
 fi
 rsync "${rsync_args[@]}" "$deploy/." "/work/src/$dest/"
 printf "Exported deploy artifacts to %s\n" "$dest"
 ' yocto-export-deploy "$dest" "$delete_extra"
+
+case "${K230_RUSTSBI_BUILD:-1}" in
+    1|yes|true|on)
+        "$script_dir/rustsbi-build" --deploy "$repo_root/$dest"
+        ;;
+    0|no|false|off)
+        printf 'Skipping RustSBI build because K230_RUSTSBI_BUILD=%s\n' "${K230_RUSTSBI_BUILD}"
+        ;;
+    *)
+        printf 'Invalid K230_RUSTSBI_BUILD value: %s\n' "${K230_RUSTSBI_BUILD}" >&2
+        exit 2
+        ;;
+esac

@@ -7,14 +7,12 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 deploy_dir="${K230_DEPLOY_DIR:-build-artifacts/k230-canmv}"
 output=""
 load_addr="${K230_SDK_LOAD_ADDR:-0x08000000}"
-sdk_root="${K230_SDK_ROOT:-$HOME/k230-project/sdk/k230_sdk}"
-use_sdk_opensbi=1
 rtt_system="${K230_RTT_SYSTEM:-}"
 no_rtt=0
 
 usage() {
     cat <<EOF
-Usage: $0 [--deploy DIR] [--output IMAGE] [--load-addr ADDR] [--sdk-root DIR] [--no-sdk-opensbi] [--rtt-system PATH] [--no-rtt]
+Usage: $0 [--deploy DIR] [--output IMAGE] [--load-addr ADDR] [--rtt-system PATH] [--no-rtt]
 
 Generate an SDK-compatible K230 SD image from Yocto deploy artifacts.
 
@@ -29,13 +27,8 @@ Defaults:
   --deploy        build-artifacts/k230-canmv
   --output        <deploy>/r2os-image-k230-canmv.sdk-sdcard.img
   --load-addr     0x08000000
-  --sdk-root      ~/k230-project/sdk/k230_sdk
   --rtt-system    auto-detected from prebuilt/ or \$K230_RTT_SYSTEM
   --no-rtt        skip rtt partition population (no warning)
-
-When the K230 SDK OpenSBI source is present, this script builds the SDK
-OpenSBI payload with the Yocto toolchain because SDK U-Boot expects that
-K230-tuned OpenSBI handoff.
 EOF
 }
 
@@ -52,14 +45,6 @@ while [ "$#" -gt 0 ]; do
         --load-addr)
             load_addr="$2"
             shift 2
-            ;;
-        --sdk-root)
-            sdk_root="$2"
-            shift 2
-            ;;
-        --no-sdk-opensbi)
-            use_sdk_opensbi=0
-            shift
             ;;
         --rtt-system)
             rtt_system="$2"
@@ -128,11 +113,10 @@ to_container_path() {
 kernel="$(first_existing "$deploy_dir/Image" "$deploy_dir/Image-k230-canmv.bin" "$deploy_dir"/Image--*.bin 2>/dev/null || true)"
 dtb="$(first_existing "$deploy_dir/k230-canmv.dtb" "$deploy_dir/canaan/k230-canmv.dtb" "$deploy_dir"/k230-canmv*.dtb 2>/dev/null || true)"
 
-# The SDK OpenSBI payload embeds the kernel, so prefer it only while it still
-# contains the kernel this build produced: a payload retained from an earlier
-# build would otherwise silently package the previous kernel.  Timestamps are
-# not trustworthy here (sstate restores and plain copies preserve them), so
-# compare the kernel bytes themselves.
+# RustSBI payload mode embeds the kernel.  The SDK image carries an external
+# DTB so its root device can differ from the direct WIC path.  The exporter
+# creates this artifact after copying the Yocto deploy output, so a missing
+# file means the RustSBI build step was skipped or failed.
 payload_contains_kernel() {
     python3 -c '
 import pathlib
@@ -144,13 +128,7 @@ sys.exit(0 if kernel and kernel in payload else 1)
 ' "$1" "$2"
 }
 
-sdk_payload="$deploy_dir/fw_payload-sdk-opensbi.bin"
-bitbake_payload="$deploy_dir/fw_payload.bin"
-if [ -f "$sdk_payload" ] && [ -n "$kernel" ] && ! payload_contains_kernel "$kernel" "$sdk_payload"; then
-    printf 'Ignoring stale fw_payload-sdk-opensbi.bin (does not embed the current kernel); rebuild it from the K230 SDK OpenSBI source.\n' >&2
-    sdk_payload=""
-fi
-fw_payload="$(first_existing "$sdk_payload" "$bitbake_payload" 2>/dev/null || true)"
+fw_payload="$deploy_dir/fw_payload.bin"
 rootfs="$(first_existing "$deploy_dir/r2os-image-k230-canmv.rootfs.ext4" "$deploy_dir"/*.rootfs.ext4 2>/dev/null || true)"
 # Keep the deploy-side path: the manifest has to name the artifact the
 # exporters can resolve in their own deploy directory, not the expanded copy
@@ -195,78 +173,58 @@ EOF
     exit 2
 fi
 
+if [ ! -s "$fw_payload" ]; then
+    cat >&2 <<EOF
+RustSBI payload not found: $fw_payload
+
+Build it from the current Yocto kernel and DTB first:
+  ./scripts/rustsbi-build --deploy "$deploy_dir"
+EOF
+    exit 2
+fi
+
+if ! payload_contains_kernel "$kernel" "$fw_payload"; then
+    cat >&2 <<EOF
+RustSBI payload does not contain the current Linux Image: $fw_payload
+
+Rebuild it with:
+  ./scripts/rustsbi-build --deploy "$deploy_dir"
+EOF
+    exit 2
+fi
+
 work_dir="$deploy_dir/k230-sdk-image-work"
 rm -rf "$work_dir"
 mkdir -p "$work_dir" "$(dirname "$output")"
 
-build_sdk_opensbi_payload() {
-    local src="$1"
-    local src_copy="$work_dir/sdk-opensbi-src"
-    local build_dir="$work_dir/sdk-opensbi-build"
-    local c_src c_build c_kernel c_out
-
-    rm -rf "$src_copy" "$build_dir"
-    cp -R "$src" "$src_copy"
-
-    c_src="$(to_container_path "$src_copy")"
-    c_build="$(to_container_path "$build_dir")"
-    c_kernel="$(to_container_path "$kernel")"
-    c_out="$(to_container_path "$work_dir/fw_payload-sdk-opensbi.bin")"
-
-    "$script_dir/yocto-shell" bash -lc '
-        set -euo pipefail
-        work="$(find /work/build -path "*/tmp/work/riscv64imafdc-poky-linux/opensbi/1.8.1" -type d 2>/dev/null | sort | tail -n 1)"
-        if [ -z "$work" ]; then
-            printf "Yocto OpenSBI work directory not found. Build r2os-image first.\n" >&2
-            exit 2
-        fi
-        toolchain_bin="$work/recipe-sysroot-native/usr/bin/riscv64-poky-linux"
-        sysroot="$work/recipe-sysroot"
-        if [ ! -x "$toolchain_bin/riscv64-poky-linux-gcc" ] || [ ! -d "$sysroot" ]; then
-            printf "Yocto OpenSBI toolchain sysroot not found. Build r2os-image first.\n" >&2
-            exit 2
-        fi
-        export PATH="$toolchain_bin:$PATH"
-        mkdir -p "$2"
-        cd "$1"
-        if ! make CROSS_COMPILE=riscv64-poky-linux- PLATFORM=generic \
-            FW_PAYLOAD_PATH="$3" O="$2" K230_LITTLE_CORE=1 OPENSBI_QUIET=1 \
-            KCFLAGS="-std=gnu11 --sysroot=$sysroot" -j"${YOCTO_PARALLEL_MAKE_JOBS:-12}" \
-            >"$2/build.log" 2>&1; then
-            cat "$2/build.log" >&2
-            exit 1
-        fi
-        cp "$2/platform/generic/firmware/fw_payload.bin" "$4"
-    ' _ "$c_src" "$c_build" "$c_kernel" "$c_out"
-
-    fw_payload="$work_dir/fw_payload-sdk-opensbi.bin"
-}
-
-if [ "$use_sdk_opensbi" -eq 1 ] && [ -d "$sdk_root/src/common/opensbi" ]; then
-    build_sdk_opensbi_payload "$sdk_root/src/common/opensbi"
-    cp -f "$fw_payload" "$deploy_dir/fw_payload-sdk-opensbi.bin"
-elif [ -z "$fw_payload" ]; then
-    cat >&2 <<EOF
-No fw_payload.bin found in $deploy_dir and SDK OpenSBI source was not available.
-
-Expected SDK OpenSBI source:
-  $sdk_root/src/common/opensbi
-EOF
-    exit 2
-fi
-
-if [ "$(file_size "$fw_payload")" -le "$(file_size "$kernel")" ]; then
-    cat >&2 <<EOF
-fw_payload.bin does not appear to contain the Linux Image payload.
-
-Use the SDK OpenSBI source with:
-  $0 --sdk-root /path/to/k230_sdk --deploy "$deploy_dir"
-EOF
-    exit 2
-fi
-
 cp -f "$fw_payload" "$work_dir/fw_payload.bin"
 cp -f "$dtb" "$work_dir/k230.dtb"
+set_sdk_bootargs() {
+    local c_dtb
+
+    if command -v fdtput >/dev/null 2>&1; then
+    fdtput -t s "$work_dir/k230.dtb" /chosen bootargs \
+        "console=ttyS0,115200 earlycon=sbi root=/dev/mmcblk1p3 rootwait rw"
+        return
+    fi
+
+    c_dtb="$(to_container_path "$work_dir/k230.dtb")"
+    "$script_dir/yocto-shell" bash -lc '
+        set -euo pipefail
+        fdtput="$(find /work/build -path "*/tmp/work/*/device-tree-compiler-native/*/recipe-sysroot-native/usr/bin/fdtput" -type f -perm -111 2>/dev/null | sort | tail -n 1)"
+        if [ -z "$fdtput" ] || [ ! -x "$fdtput" ]; then
+            fdtput="$(command -v fdtput || true)"
+        fi
+        if [ -z "$fdtput" ] || [ ! -x "$fdtput" ]; then
+            printf "fdtput is required to set the SDK image root device in the external DTB.\n" >&2
+            exit 2
+        fi
+        "$fdtput" -t s "$1" /chosen bootargs \
+            "console=ttyS0,115200 earlycon=sbi root=/dev/mmcblk1p3 rootwait rw"
+    ' _ "$c_dtb"
+}
+
+set_sdk_bootargs
 printf 'a\n' > "$work_dir/rd"
 
 gzip -n -9 -c "$work_dir/fw_payload.bin" > "$work_dir/fw_payload.bin.gz"

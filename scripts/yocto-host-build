@@ -62,7 +62,6 @@ downloads="${YOCTO_DOWNLOADS:-}"
 sstate="${YOCTO_SSTATE:-}"
 bb_threads="${YOCTO_BB_THREADS:-12}"
 make_jobs="${YOCTO_PARALLEL_MAKE_JOBS:-12}"
-skip_opensbi_patch="${YOCTO_HOST_SKIP_OPENSBI_PATCH:-auto}"
 
 if [ ! -f "$poky_dir/oe-init-build-env" ]; then
     cat >&2 <<EOF
@@ -111,16 +110,6 @@ EOF
     fi
 }
 
-append_opensbi_compat_conf() {
-    if ! grep -q "SRC_URI:remove:pn-opensbi" conf/local.conf 2>/dev/null; then
-        cat >> conf/local.conf <<'EOF'
-
-# Host Scarthgap provides OpenSBI 1.4; the layer patch targets OpenSBI 1.8.
-SRC_URI:remove:pn-opensbi = "file://0001-lib-sbi-skip-unusable-single-entry-pmp-protection.patch"
-EOF
-    fi
-}
-
 append_legacy_unpackdir_conf() {
     # Scarthgap has no UNPACKDIR and unpacks directly under WORKDIR.  Wrynose
     # defines it as ${WORKDIR}/sources and rejects ${WORKDIR} for every recipe,
@@ -141,26 +130,7 @@ set -u
 mkdir -p conf
 append_local_conf
 
-poky_branch="$(git -C "$poky_dir" branch --show-current 2>/dev/null || true)"
-
-case "$skip_opensbi_patch" in
-    1|yes|true|on)
-        append_opensbi_compat_conf
-        append_legacy_unpackdir_conf
-        ;;
-    auto)
-        if [ "$poky_branch" = "scarthgap" ]; then
-            append_opensbi_compat_conf
-            append_legacy_unpackdir_conf
-        fi
-        ;;
-    0|no|false|off|"")
-        ;;
-    *)
-        printf 'Invalid YOCTO_HOST_SKIP_OPENSBI_PATCH value: %s\n' "$skip_opensbi_patch" >&2
-        exit 2
-        ;;
-esac
+append_legacy_unpackdir_conf
 
 add_layer_if_missing() {
     local layer_path="$1"
@@ -202,8 +172,8 @@ deploy_target="$repo_root/$deploy_dir"
 mkdir -p "$deploy_target"
 
 # Same handling as scripts/yocto-export-deploy: the SDK image, its work
-# directory, the unpacked SD image cache and the SDK OpenSBI payload only exist
-# next to the deploy mirror, so the mirroring --delete must not remove them.
+# directory and the unpacked SD image cache only exist next to the deploy
+# mirror, so the mirroring --delete must not remove them.
 # They are kept only while the SDK image provably comes from the current
 # inputs, which k230-sdk-image records in "<image>.inputs"; a missing record
 # means unknown provenance and is rebuilt.
@@ -235,7 +205,7 @@ for sdk_image in "$deploy_target"/*.sdk-sdcard.img; do
                     source_file="$deploy_source/$name"
                     ;;
                 fw_payload)
-                    # The K230-tuned payload is only written next to the export.
+                    # RustSBI payloads are generated after the deploy mirror.
                     source_file="$deploy_source/$name"
                     if [ ! -f "$source_file" ]; then
                         source_file="$deploy_target/$name"
@@ -272,8 +242,7 @@ done
 if [ -n "$stale_reason" ]; then
     rm -rf "$deploy_target"/*.sdk-sdcard.img \
         "$deploy_target"/*.sdk-sdcard.img.inputs \
-        "$deploy_target"/k230-sdk-image-work \
-        "$deploy_target"/fw_payload-sdk-opensbi.bin
+        "$deploy_target"/k230-sdk-image-work
     printf 'Invalidated the derived SDK artifacts: %s\n' "$stale_reason" >&2
 fi
 
@@ -281,6 +250,18 @@ rsync -a --delete \
     --exclude '*.sdk-sdcard.img' \
     --exclude '*.sdk-sdcard.img.inputs' \
     --exclude 'k230-sdk-image-work/' \
-    --exclude 'fw_payload-sdk-opensbi.bin' \
     "$deploy_source/." "$deploy_target/"
 printf 'Exported deploy artifacts to %s\n' "$deploy_dir"
+
+case "${K230_RUSTSBI_BUILD:-1}" in
+    1|yes|true|on)
+        "$repo_root/scripts/rustsbi-build" --deploy "$deploy_target"
+        ;;
+    0|no|false|off)
+        printf 'Skipping RustSBI build because K230_RUSTSBI_BUILD=%s\n' "${K230_RUSTSBI_BUILD}"
+        ;;
+    *)
+        printf 'Invalid K230_RUSTSBI_BUILD value: %s\n' "${K230_RUSTSBI_BUILD}" >&2
+        exit 2
+        ;;
+esac

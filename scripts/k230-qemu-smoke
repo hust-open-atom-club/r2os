@@ -191,7 +191,6 @@ def prepare_no_host_key_deploy(script_dir: Path, deploy: Path) -> Path:
     )
     fw_payload = _find_deploy_file(
         deploy,
-        "fw_payload-sdk-opensbi.bin",
         "fw_payload.bin",
     )
 
@@ -217,7 +216,7 @@ def prepare_no_host_key_deploy(script_dir: Path, deploy: Path) -> Path:
     )
     shutil.copy2(kernel, tmp_deploy / "Image")
     shutil.copy2(dtb, tmp_deploy / "k230-canmv.dtb")
-    shutil.copy2(fw_payload, tmp_deploy / "fw_payload-sdk-opensbi.bin")
+    shutil.copy2(fw_payload, tmp_deploy / "fw_payload.bin")
 
     output = tmp_deploy / "r2os-image-k230-canmv.sdk-sdcard.img"
     subprocess.run(
@@ -225,7 +224,6 @@ def prepare_no_host_key_deploy(script_dir: Path, deploy: Path) -> Path:
             str(script_dir / "k230-sdk-image"),
             "--deploy", str(tmp_deploy),
             "--output", str(output),
-            "--no-sdk-opensbi",
         ],
         check=True,
         stdout=subprocess.PIPE,
