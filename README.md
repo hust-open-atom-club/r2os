@@ -7,8 +7,10 @@ Dropbear SSH, `opkg`, common command-line tools, and an R² OS Fastfetch logo.
 
 ## What It Looks Like
 
-A current shell view after booting the image looks like this. The output is
-kept in a fenced code block so the logo stays aligned in rendered Markdown.
+A current shell view after booting the image looks like this. The left column
+comes from [`r2os-logo.txt`](meta-r2os-apps/recipes-support/fastfetch/files/r2os-logo.txt);
+the Fastfetch color placeholders are removed here so the character layout is
+visible in plain Markdown.
 
 ```text
 root@k230-canmv:~# fastfetch
@@ -23,9 +25,9 @@ root@k230-canmv:~# fastfetch
         ██████▒ ░███████░                          CPU: k230
         ██████▒   ████████                         Memory: 41.96 MiB / 1.80 GiB (2%)
         ██████▒    ░███████▓                       Swap: Unused
-       ░███████       ░████████                    Disk (/): 63.91 MiB / 1.84 GiB (3%) - ext4
-    ██████████████      ██████████░                Local IP (eth0): 10.0.2.15/24
-    ░███████       ░███████                         Locale: C
+        ██████▒      ████████                      Disk (/): 63.91 MiB / 1.84 GiB (3%) - ext4
+       ░███████       ▒████████                    Local IP (eth0): 10.0.2.15/24
+    ██████████████      ██████████░                Locale: C
 ```
 
 Uptime, memory, disk usage, and the IP address are runtime values and will
