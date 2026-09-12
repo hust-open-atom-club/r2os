@@ -10,16 +10,16 @@
 
 <table align="center">
   <tr>
-    <th>Target</th>
-    <th>Build</th>
-    <th>Firmware</th>
-    <th>Userspace</th>
+    <th align="center">Target</th>
+    <th align="center">Build</th>
+    <th align="center">Firmware</th>
+    <th align="center">Userspace</th>
   </tr>
   <tr>
-    <td>RISC-V 64</td>
-    <td>Yocto/OpenEmbedded</td>
-    <td>RustSBI</td>
-    <td>BusyBox + Dropbear</td>
+    <td align="center">RISC-V 64</td>
+    <td align="center">Yocto/OpenEmbedded</td>
+    <td align="center">RustSBI</td>
+    <td align="center">BusyBox + Dropbear</td>
   </tr>
 </table>
 
