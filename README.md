@@ -5,6 +5,32 @@ A small Yocto/OpenEmbedded Linux distribution for the Canaan CanMV-K230.
 R² OS targets RISC-V Linux development with a lightweight BusyBox userspace,
 Dropbear SSH, `opkg`, common command-line tools, and an R² OS Fastfetch logo.
 
+## What It Looks Like
+
+A current shell view after booting the image looks like this. The output is
+kept in a fenced code block so the logo stays aligned in rendered Markdown.
+
+```text
+root@k230-canmv:~# fastfetch
+    ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░              ░▓██████▒      root@k230-canmv
+     ░▒███████▒  ░▒████████       ████    █████░   ---------------
+        ██████▒      ███████▒    ░████▒    █████   OS: R² OS 1.0 (wrynose) riscv64
+        ██████▒      ░███████      ▓▓     ▒█████   Host: Canaan CanMV-K230
+        ██████▒      ░███████            ▒█████    Kernel: Linux 6.18.28
+        ██████▒      ███████           ▒████▒      Uptime: 11 mins
+        ██████▒    ▒██████           ███░          Shell: sh
+        ███████████████           ▓██████████████  Terminal: vt102
+        ██████▒ ░███████░                          CPU: k230
+        ██████▒   ████████                         Memory: 41.96 MiB / 1.80 GiB (2%)
+        ██████▒    ░███████▓                       Swap: Unused
+       ░███████       ░████████                    Disk (/): 63.91 MiB / 1.84 GiB (3%) - ext4
+    ██████████████      ██████████░                Local IP (eth0): 10.0.2.15/24
+    ░███████       ░███████                         Locale: C
+```
+
+Uptime, memory, disk usage, and the IP address are runtime values and will
+change between boots.
+
 ## Quick Start
 
 From the repository root:
@@ -44,6 +70,31 @@ make check             # Run static checks and unit tests
 
 `make qemu` is an alias for `make k230-qemu`. Use `QEMU_MODE=sd` to select the
 SD path directly.
+
+## Architecture
+
+R² OS is split into three Yocto layers, each with a narrow responsibility:
+
+- `meta-k230-bsp` owns the K230 machine, Linux recipe, device tree, WIC layout,
+  and RustSBI address configuration.
+- `meta-r2os-distro` owns distro policy, the image recipe, packagegroups, and
+  the BusyBox/Dropbear userspace.
+- `meta-r2os-apps` owns application recipes such as Fastfetch and PicoClaw.
+
+The boot paths share the same Linux kernel and userspace, but use different
+storage layouts:
+
+```text
+Direct initrd:  QEMU -> RustSBI dynamic -> Linux -> initramfs -> BusyBox init
+Direct WIC:     QEMU -> RustSBI dynamic -> Linux -> /dev/mmcblk1p2
+SDK U-Boot:     QEMU -> SDK U-Boot -> RustSBI payload -> Linux -> /dev/mmcblk1p3
+```
+
+RustSBI is generated from the exported kernel and device tree by
+[`scripts/rustsbi-build`](scripts/rustsbi-build). The direct path passes its
+device tree at boot; the SDK path carries an external device tree so its GPT
+root partition can use `/dev/mmcblk1p3`. For the full layer and memory map,
+see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Build Environment
 
