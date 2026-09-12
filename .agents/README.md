@@ -14,7 +14,7 @@ Available skills:
   U-Boot.
 - `k230-test`: run static checks and runtime smoke tests.
 - `k230-docker`: maintain the Ubuntu 24.04 Yocto container and Docker volumes.
-- `k230-config-explain`: explain machine, distro, kernel, DTS, WIC, and OpenSBI
+- `k230-config-explain`: explain machine, distro, kernel, DTS, WIC, and SBI firmware
   configuration.
 
 Keep the path simple: build, boot, test, explain.
