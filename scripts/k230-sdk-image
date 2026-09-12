@@ -127,8 +127,35 @@ to_container_path() {
 
 kernel="$(first_existing "$deploy_dir/Image" "$deploy_dir/Image-k230-canmv.bin" "$deploy_dir"/Image--*.bin 2>/dev/null || true)"
 dtb="$(first_existing "$deploy_dir/k230-canmv.dtb" "$deploy_dir/canaan/k230-canmv.dtb" "$deploy_dir"/k230-canmv*.dtb 2>/dev/null || true)"
-fw_payload="$(first_existing "$deploy_dir/fw_payload-sdk-opensbi.bin" "$deploy_dir/fw_payload.bin" 2>/dev/null || true)"
+
+# The SDK OpenSBI payload embeds the kernel, so prefer it only while it still
+# contains the kernel this build produced: a payload retained from an earlier
+# build would otherwise silently package the previous kernel.  Timestamps are
+# not trustworthy here (sstate restores and plain copies preserve them), so
+# compare the kernel bytes themselves.
+payload_contains_kernel() {
+    python3 -c '
+import pathlib
+import sys
+
+kernel = pathlib.Path(sys.argv[1]).read_bytes()
+payload = pathlib.Path(sys.argv[2]).read_bytes()
+sys.exit(0 if kernel and kernel in payload else 1)
+' "$1" "$2"
+}
+
+sdk_payload="$deploy_dir/fw_payload-sdk-opensbi.bin"
+bitbake_payload="$deploy_dir/fw_payload.bin"
+if [ -f "$sdk_payload" ] && [ -n "$kernel" ] && ! payload_contains_kernel "$kernel" "$sdk_payload"; then
+    printf 'Ignoring stale fw_payload-sdk-opensbi.bin (does not embed the current kernel); rebuild it from the K230 SDK OpenSBI source.\n' >&2
+    sdk_payload=""
+fi
+fw_payload="$(first_existing "$sdk_payload" "$bitbake_payload" 2>/dev/null || true)"
 rootfs="$(first_existing "$deploy_dir/r2os-image-k230-canmv.rootfs.ext4" "$deploy_dir"/*.rootfs.ext4 2>/dev/null || true)"
+# Keep the deploy-side path: the manifest has to name the artifact the
+# exporters can resolve in their own deploy directory, not the expanded copy
+# built below.
+deploy_rootfs="$rootfs"
 
 # -- locate rtt_system.bin (optional) --
 sdk_artifact_dir="${K230_SDK_ARTIFACT_DIR:-}"
@@ -538,6 +565,46 @@ PY
 printf 'Created SDK-compatible SD image: %s\n' "$output"
 printf 'linux_system.bin: %s\n' "$work_dir/linux_system.bin"
 printf 'fw_payload.bin: %s\n' "$fw_payload"
+
+# Record what the image was built from, so the deploy exporters can tell a
+# current image from one that an earlier build left behind.  One line per
+# input: <key> <sha256> <name in the deploy directory, or ->.  The exporters
+# resolve <name> against their own deploy directory and refuse to keep the
+# image when an input no longer matches, when a non-default RTT firmware was
+# used, or when this record is missing.
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | cut -d ' ' -f1
+    else
+        shasum -a 256 "$1" | cut -d ' ' -f1
+    fi
+}
+
+default_rtt="$repo_root/prebuilt/k230-sdk/riscv-nomtee/rtt_system.bin"
+if [ -z "$rtt_system" ]; then
+    rtt_source="none"
+elif [ "$rtt_system" = "$default_rtt" ]; then
+    rtt_source="default"
+else
+    rtt_source="custom"
+fi
+
+manifest="$output.inputs"
+{
+    printf 'kernel %s %s\n' "$(sha256_of "$kernel")" "$(basename "$kernel")"
+    printf 'dtb %s %s\n' "$(sha256_of "$dtb")" "$(basename "$dtb")"
+    printf 'fw_payload %s %s\n' "$(sha256_of "$fw_payload")" "$(basename "$fw_payload")"
+    printf 'rootfs %s %s\n' "$(sha256_of "$deploy_rootfs")" "$(basename "$deploy_rootfs")"
+    printf 'script %s -\n' "$(sha256_of "$repo_root/scripts/k230-sdk-image")"
+    printf 'rtt_source %s -\n' "$rtt_source"
+    if [ "$rtt_source" = "default" ]; then
+        printf 'rtt %s -\n' "$(sha256_of "$rtt_system")"
+    else
+        printf 'rtt - -\n'
+    fi
+} > "$manifest"
+
+printf 'SDK image inputs: %s\n' "$manifest"
 if [ -n "$rtt_system" ]; then
     printf 'rtt_system.bin: %s\n' "$rtt_system"
 fi
